@@ -15,6 +15,7 @@ from handlers.socket import register_socketio_handlers  # noqa: E402
 from server.shmmonitor import start_cleanup_thread  # noqa: E402
 from server.shutdown import cleanup_everything, signal_handler  # noqa: E402
 from server.startup import app, init_db, sio, socket_app  # noqa: E402
+from server.version import get_version_base  # noqa: E402
 from video.webrtc import register_webrtc_routes  # noqa: E402
 
 try:
@@ -27,8 +28,9 @@ except ImportError:
 
 def print_banner():
     """Print ASCII art banner with version."""
+    version = get_version_base()
     print(
-        """
+        f"""
    ██████╗ ██████╗  ██████╗ ██╗   ██╗███╗   ██╗██████╗
   ██╔════╝ ██╔══██╗██╔═══██╗██║   ██║████╗  ██║██╔══██╗
   ██║  ███╗██████╔╝██║   ██║██║   ██║██╔██╗ ██║██║  ██║
@@ -43,7 +45,7 @@ def print_banner():
   ███████║   ██║   ██║  ██║   ██║   ██║╚██████╔╝██║ ╚████║
   ╚══════╝   ╚═╝   ╚═╝  ╚═╝   ╚═╝   ╚═╝ ╚═════╝ ╚═╝  ╚═══╝
 
-                            v0.1.77
+                            v{version}
     """
     )
 
