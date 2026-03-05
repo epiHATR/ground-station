@@ -76,7 +76,7 @@ const MapSettingsIsland = ({ initialShowPastOrbitPath, initialShowFutureOrbitPat
     return (
             <Stack>
                 <SettingItem style={{padding: '0.5rem 0.5rem'}}>
-                    <FormControl fullWidth size={"small"} variant={"filled"}>
+                    <FormControl fullWidth size={"small"} variant={"outlined"}>
                         <InputLabel id="orbit-time-label">{t('map_settings.orbit_projection_time')}</InputLabel>
                         <Select
                             labelId="orbit-time-label"
@@ -87,7 +87,7 @@ const MapSettingsIsland = ({ initialShowPastOrbitPath, initialShowFutureOrbitPat
                                 setOrbitProjectionDuration(e.target.value);
                                 updateBackend(e.target.value);
                             }}
-                            variant={"filled"}
+                            variant={"outlined"}
                         >
                             {timeOptions.map((option) => (
                                 <MenuItem key={option.value} value={option.value}>
@@ -98,7 +98,7 @@ const MapSettingsIsland = ({ initialShowPastOrbitPath, initialShowFutureOrbitPat
                     </FormControl>
                 </SettingItem>
                 <SettingItem style={{padding: '0rem 0.5rem 0.5rem 0.5rem'}}>
-                    <FormControl fullWidth size={"small"} variant={"filled"}>
+                    <FormControl fullWidth size={"small"} variant={"outlined"}>
                         <InputLabel id="tile-layer-label">{t('map_settings.tile_layer')}</InputLabel>
                         <Select
                             labelId="tile-layer-label"
@@ -109,7 +109,7 @@ const MapSettingsIsland = ({ initialShowPastOrbitPath, initialShowFutureOrbitPat
                                 handleTileLayerID(e.target.value);
                                 updateBackend(e.target.value);
                             }}
-                         variant={"filled"}>
+                         variant={"outlined"}>
                             {tileLayers.map((layer) => (
                                 <MenuItem key={layer.id} value={layer.id}>
                                     {layer.name}
