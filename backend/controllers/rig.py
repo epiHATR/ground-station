@@ -46,6 +46,7 @@ class RigController:
         self.command_lock = asyncio.Lock()
         self.supports_split_tx_cmd = False
         self.supports_vfo_opt = False
+        self.supports_explicit_vfo_cmd = False
         self.supports_ptt_query = False
 
     async def connect(self) -> bool:
@@ -99,6 +100,7 @@ class RigController:
             self.writer = None
             self.supports_split_tx_cmd = False
             self.supports_vfo_opt = False
+            self.supports_explicit_vfo_cmd = False
             self.supports_ptt_query = False
             self.logger.info("Disconnected from rig")
             return True
@@ -244,6 +246,7 @@ class RigController:
         """Probe optional rigctld capabilities used by advanced tracking strategies."""
         self.supports_split_tx_cmd = False
         self.supports_vfo_opt = False
+        self.supports_explicit_vfo_cmd = False
         self.supports_ptt_query = False
 
         try:
@@ -261,15 +264,14 @@ class RigController:
             self.supports_ptt_query = False
 
         try:
-            # Query support without mutating rigctld parser mode long-term.
-            chk_response = await self._send_command("\\chk_vfo")
-            chk_code = self._parse_rprt_code(chk_response)
-            if chk_code is None:
-                self.supports_vfo_opt = chk_response.strip().startswith("1")
-            else:
-                self.supports_vfo_opt = False
+            # Query/enable parser mode support; explicit-VFO strategy depends on this.
+            set_vfo_opt_response = await self._send_command("\\set_vfo_opt 1")
+            set_vfo_opt_code = self._parse_rprt_code(set_vfo_opt_response)
+            self.supports_vfo_opt = set_vfo_opt_code is None or set_vfo_opt_code >= 0
+            self.supports_explicit_vfo_cmd = self.supports_vfo_opt
         except Exception:
             self.supports_vfo_opt = False
+            self.supports_explicit_vfo_cmd = False
 
         # Keep rigctld in legacy/default parsing mode because the controller currently
         # sends non-vfo_opt command forms (F/f/V without explicit leading VFO args).
@@ -279,11 +281,22 @@ class RigController:
             pass
 
         self.logger.debug(
-            "Rig capabilities: split_tx_cmd=%s, vfo_opt=%s, ptt_query=%s",
+            "Rig capabilities: split_tx_cmd=%s, explicit_vfo_cmd=%s, vfo_opt=%s, ptt_query=%s",
             self.supports_split_tx_cmd,
+            self.supports_explicit_vfo_cmd,
             self.supports_vfo_opt,
             self.supports_ptt_query,
         )
+
+    async def set_vfo_opt(self, enabled: bool) -> bool:
+        """Enable/disable rigctld VFO-aware short-command parser."""
+        value = 1 if enabled else 0
+        response = await self._send_command(f"\\set_vfo_opt {value}")
+        error_code = self._parse_rprt_code(response)
+        if error_code is not None and error_code < 0:
+            self.logger.error("set_vfo_opt failed: %s", response)
+            return False
+        return True
 
     async def get_frequency(self) -> float:
         """Get the current frequency."""
@@ -527,6 +540,41 @@ class RigController:
         except Exception as e:
             self.logger.error(f"Error setting TX frequency: {e}")
             raise RuntimeError(f"Error setting TX frequency: {e}")
+
+    async def set_frequency_explicit_vfo(self, vfo_name: str, target_freq: float) -> bool:
+        """
+        Set frequency on a specific VFO using explicit-VFO short command format.
+
+        This uses rigctld VFO-aware parsing: ``\\set_vfo_opt 1`` + ``F VFOx <Hz>``.
+        """
+        if vfo_name not in {"VFOA", "VFOB"}:
+            raise ValueError(f"Unsupported VFO name for explicit control: {vfo_name}")
+
+        if not self.supports_explicit_vfo_cmd:
+            self.logger.error("Explicit VFO command strategy is not supported by this rig")
+            return False
+
+        vfo_opt_enabled = False
+        try:
+            vfo_opt_enabled = await self.set_vfo_opt(True)
+            if not vfo_opt_enabled:
+                return False
+
+            response = await self._send_command(f"F {vfo_name} {int(round(target_freq))}")
+            error_code = self._parse_rprt_code(response)
+            if error_code is not None and error_code < 0:
+                self.logger.error("Explicit VFO set frequency failed: %s", response)
+                return False
+            return True
+        except Exception as e:
+            self.logger.error("Error setting explicit VFO frequency: %s", e)
+            raise RuntimeError(f"Error setting explicit VFO frequency: {e}")
+        finally:
+            if vfo_opt_enabled:
+                try:
+                    await self.set_vfo_opt(False)
+                except Exception:
+                    pass
 
     async def get_vfo(self) -> str:
         """Get the current VFO."""

@@ -322,6 +322,9 @@ export default function RigTable() {
                                         <MenuItem value="split_tx_cmd">
                                             {t('rig.tx_mode_split_tx_cmd')}
                                         </MenuItem>
+                                        <MenuItem value="vfo_explicit">
+                                            {t('rig.tx_mode_vfo_explicit')}
+                                        </MenuItem>
                                     </Select>
                                     <FormHelperText>{t(txControlModeHelpKey)}</FormHelperText>
                                 </FormControl>

@@ -40,7 +40,7 @@ class RigHandler:
         """
         self.tracker = tracker
         self.last_vfo_update_time = 0.0  # Track when VFO frequencies were last updated
-        self.fallback_to_vfo_switch = False
+        self.failed_tx_control_modes: set[str] = set()
 
     def _apply_radio_mode_to_targets(
         self,
@@ -127,6 +127,7 @@ class RigHandler:
                 )
 
                 await self.tracker.rig_controller.connect()
+                self.failed_tx_control_modes.clear()
 
                 # Update state
                 self.tracker.rig_data.update(
@@ -486,9 +487,44 @@ class RigHandler:
                         return
                     except Exception as e:
                         logger.warning(
-                            "split_tx_cmd strategy failed (%s); falling back to vfo_switch", e
+                            "split_tx_cmd strategy failed (%s); attempting fallback strategy", e
                         )
-                        self.fallback_to_vfo_switch = True
+                        self.failed_tx_control_modes.add("split_tx_cmd")
+                        if (
+                            configured_tx_control_mode == "auto"
+                            and isinstance(self.tracker.rig_controller, RigController)
+                            and self.tracker.rig_controller.supports_explicit_vfo_cmd
+                            and "vfo_explicit" not in self.failed_tx_control_modes
+                        ):
+                            try:
+                                await self._control_vfo_explicit(
+                                    transmitter=transmitter,
+                                    vfo1_freq=vfo1_freq,
+                                    vfo2_freq=vfo2_freq,
+                                )
+                                self.tracker.rig_data["active_tx_control_mode"] = "vfo_explicit"
+                                return
+                            except Exception as explicit_error:
+                                logger.warning(
+                                    "vfo_explicit fallback strategy failed (%s); using vfo_switch",
+                                    explicit_error,
+                                )
+                                self.failed_tx_control_modes.add("vfo_explicit")
+                        self.tracker.rig_data["active_tx_control_mode"] = "vfo_switch"
+
+                if effective_tx_control_mode == "vfo_explicit":
+                    try:
+                        await self._control_vfo_explicit(
+                            transmitter=transmitter,
+                            vfo1_freq=vfo1_freq,
+                            vfo2_freq=vfo2_freq,
+                        )
+                        return
+                    except Exception as e:
+                        logger.warning(
+                            "vfo_explicit strategy failed (%s); falling back to vfo_switch", e
+                        )
+                        self.failed_tx_control_modes.add("vfo_explicit")
                         self.tracker.rig_data["active_tx_control_mode"] = "vfo_switch"
 
                 await self._control_vfo_switch(
@@ -503,12 +539,19 @@ class RigHandler:
             return "vfo_switch"
         if configured_tx_control_mode == "split_tx_cmd":
             return "split_tx_cmd"
-
-        if self.fallback_to_vfo_switch:
-            return "vfo_switch"
+        if configured_tx_control_mode == "vfo_explicit":
+            return "vfo_explicit"
         if isinstance(self.tracker.rig_controller, RigController):
-            if self.tracker.rig_controller.supports_split_tx_cmd:
+            if (
+                self.tracker.rig_controller.supports_split_tx_cmd
+                and "split_tx_cmd" not in self.failed_tx_control_modes
+            ):
                 return "split_tx_cmd"
+            if (
+                self.tracker.rig_controller.supports_explicit_vfo_cmd
+                and "vfo_explicit" not in self.failed_tx_control_modes
+            ):
+                return "vfo_explicit"
         return "vfo_switch"
 
     async def _is_ptt_active(self) -> bool:
@@ -625,6 +668,36 @@ class RigHandler:
                 logger.debug(f"Selected {vfo_name} (downlink) for user operation")
             except Exception as e:
                 logger.error(f"Error selecting downlink VFO: {e}")
+
+    async def _control_vfo_explicit(self, transmitter, vfo1_freq, vfo2_freq):
+        if not isinstance(self.tracker.rig_controller, RigController):
+            return
+
+        if vfo1_freq and vfo1_freq > 0:
+            success = await self.tracker.rig_controller.set_frequency_explicit_vfo(
+                "VFOA", vfo1_freq
+            )
+            if not success:
+                raise RuntimeError("Failed to set explicit VFOA frequency")
+            self.tracker.rig_data["vfo1"] = {
+                "frequency": vfo1_freq,
+                "mode": transmitter.get("mode", "UNKNOWN"),
+                "bandwidth": 0,
+            }
+            logger.debug("Explicit VFOA tuned to %s Hz", vfo1_freq)
+
+        if vfo2_freq and vfo2_freq > 0:
+            success = await self.tracker.rig_controller.set_frequency_explicit_vfo(
+                "VFOB", vfo2_freq
+            )
+            if not success:
+                raise RuntimeError("Failed to set explicit VFOB frequency")
+            self.tracker.rig_data["vfo2"] = {
+                "frequency": vfo2_freq,
+                "mode": transmitter.get("mode", "UNKNOWN"),
+                "bandwidth": 0,
+            }
+            logger.debug("Explicit VFOB tuned to %s Hz", vfo2_freq)
 
     async def update_hardware_frequency(self):
         """Update current rig frequency (no VFO reading to avoid switching)."""

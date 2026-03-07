@@ -209,7 +209,8 @@ async def add_rig(session: AsyncSession, data: dict) -> dict:
             "auto",
             "vfo_switch",
             "split_tx_cmd",
-        }, "tx_control_mode must be auto, vfo_switch, or split_tx_cmd"
+            "vfo_explicit",
+        }, "tx_control_mode must be auto, vfo_switch, split_tx_cmd, or vfo_explicit"
 
         new_id = uuid.uuid4()
         now = datetime.now(timezone.utc)
@@ -255,6 +256,7 @@ async def edit_rig(session: AsyncSession, data: dict) -> dict:
             "auto",
             "vfo_switch",
             "split_tx_cmd",
+            "vfo_explicit",
         }:
             return {"success": False, "error": "Invalid tx_control_mode value."}
         if "radio_mode" in data:
