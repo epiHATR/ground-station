@@ -38,10 +38,10 @@ from tasks.manager import BackgroundTaskManager
 from tracker.messages import handle_tracker_messages
 from tracker.runner import get_tracker_manager, start_tracker_process
 
-# Increase payload limits to handle large waterfall PNG images (typically 2-5MB as base64)
+# Increase payload limits to handle large waterfall PNG images and maintenance uploads.
 Payload.max_decode_packets = 50
-# Default is 100KB (100000 bytes), increase to 10MB to handle large PNG images
-Payload.max_decode_packet_size = 10 * 1024 * 1024  # 10MB
+# Default is 100KB (100000 bytes), increase to 30MB.
+Payload.max_decode_packet_size = 30 * 1024 * 1024  # 30MB
 
 # At the top of the file, add a global to track background tasks
 background_tasks: Set[asyncio.Task] = set()
@@ -184,7 +184,7 @@ sio = socketio.AsyncServer(
     logger=True,
     engineio_logger=True,
     binary=True,
-    max_http_buffer_size=10 * 1024 * 1024,  # 10MB to handle large waterfall PNG images
+    max_http_buffer_size=30 * 1024 * 1024,  # 30MB for large Socket.IO payloads
 )
 
 

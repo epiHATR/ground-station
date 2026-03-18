@@ -16,12 +16,52 @@
 
 import html
 import re
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from sqlalchemy import text
 
 from db import AsyncSessionLocal
 from db.models import Base
+
+
+def _split_sql_statements(sql_content: str) -> List[str]:
+    """Split SQL content into statements while respecting quoted string literals."""
+    statements: List[str] = []
+    current: List[str] = []
+    in_single_quote = False
+    i = 0
+
+    while i < len(sql_content):
+        char = sql_content[i]
+
+        if char == "'":
+            # SQLite escapes single quotes in strings using doubled single quotes ('')
+            if in_single_quote and i + 1 < len(sql_content) and sql_content[i + 1] == "'":
+                current.append("''")
+                i += 2
+                continue
+
+            in_single_quote = not in_single_quote
+            current.append(char)
+            i += 1
+            continue
+
+        if char == ";" and not in_single_quote:
+            statement = "".join(current).strip()
+            if statement:
+                statements.append(statement)
+            current = []
+            i += 1
+            continue
+
+        current.append(char)
+        i += 1
+
+    trailing = "".join(current).strip()
+    if trailing:
+        statements.append(trailing)
+
+    return statements
 
 
 async def list_tables() -> Dict[str, Any]:
@@ -246,8 +286,8 @@ async def full_restore(sql: str, drop_tables: bool = True) -> Dict[str, Any]:
         # Join multi-line statements
         sql_content = "\n".join(lines)
 
-        # Split by semicolon to get individual statements
-        statements = [stmt.strip() for stmt in sql_content.split(";") if stmt.strip()]
+        # Split statements safely to keep semicolons inside quoted text values
+        statements = _split_sql_statements(sql_content)
 
         # Separate CREATE and INSERT statements
         create_statements = []

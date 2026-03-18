@@ -44,6 +44,9 @@ import { Download, Upload, Backup } from '@mui/icons-material';
 import { useSocket } from '../../common/socket.jsx';
 import { toast } from '../../../utils/toast-with-timestamp.jsx';
 
+const FULL_RESTORE_MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
+const FULL_RESTORE_MAX_FILE_SIZE_MB = FULL_RESTORE_MAX_FILE_SIZE_BYTES / (1024 * 1024);
+
 const DatabaseBackupCard = () => {
     const { socket } = useSocket();
     const [tables, setTables] = useState([]);
@@ -188,13 +191,29 @@ const DatabaseBackupCard = () => {
 
     const handleFullRestoreFileSelect = (event) => {
         const file = event.target.files[0];
-        if (file) {
-            setFullRestoreFile(file);
+        if (!file) return;
+
+        if (file.size > FULL_RESTORE_MAX_FILE_SIZE_BYTES) {
+            toast.error(
+                `Full restore file is too large (${(file.size / (1024 * 1024)).toFixed(1)} MB). Max allowed is ${FULL_RESTORE_MAX_FILE_SIZE_MB} MB.`
+            );
+            setFullRestoreFile(null);
+            event.target.value = '';
+            return;
         }
+
+        setFullRestoreFile(file);
     };
 
     const handleFullRestoreConfirm = async () => {
         if (!socket || !fullRestoreFile) return;
+
+        if (fullRestoreFile.size > FULL_RESTORE_MAX_FILE_SIZE_BYTES) {
+            toast.error(
+                `Selected file exceeds ${FULL_RESTORE_MAX_FILE_SIZE_MB} MB limit. Please choose a smaller backup file.`
+            );
+            return;
+        }
 
         setLoading(true);
         try {
@@ -413,6 +432,10 @@ const DatabaseBackupCard = () => {
 
                         <Alert severity="info" sx={{ mb: 2 }}>
                             The backup file must be a full database backup containing both schema (CREATE TABLE statements) and data (INSERT statements).
+                        </Alert>
+
+                        <Alert severity="info" sx={{ mb: 2 }}>
+                            Maximum full restore file size: {FULL_RESTORE_MAX_FILE_SIZE_MB} MB.
                         </Alert>
 
                         <FormControlLabel

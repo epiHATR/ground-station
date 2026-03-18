@@ -419,10 +419,10 @@ export const SocketProvider = ({ children }) => {
         const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
         const backendURL = `${protocol}://${host}:${port}/ws`;
         console.info("Connecting to backend at", backendURL);
-        // Configure manager with increased payload size limits for large waterfall images
+        // Configure manager with increased payload size limits for large Socket.IO messages
         const manager = new Manager(backendURL, {
-            // Increase max HTTP buffer size (default is 1e6 = 1MB, increase to 10MB)
-            maxHttpBufferSize: 10 * 1024 * 1024
+            // Increase max HTTP buffer size (default is 1e6 = 1MB, increase to 30MB)
+            maxHttpBufferSize: 30 * 1024 * 1024
         });
         const newSocket = manager.socket("/");
         setSocket(newSocket);
