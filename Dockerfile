@@ -57,6 +57,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-requests \
     libfftw3-dev \
     libsqlite3-dev \
+    libiio-dev \
+    libad9361-dev \
+    libusb-1.0-0-dev \
     pkg-config \
     wget \
     && rm -rf /var/lib/apt/lists/*
@@ -174,6 +177,17 @@ RUN git clone --depth=1 https://github.com/pothosware/SoapyUHD.git && \
 WORKDIR /src
 RUN git clone --depth=1 https://github.com/pothosware/SoapyHackRF.git && \
     cd SoapyHackRF && \
+    mkdir build && \
+    cd build && \
+    cmake .. && \
+    make -j$(nproc) && \
+    sudo make install -j$(nproc) && \
+    sudo ldconfig
+
+# compile SoapySDR-PlutoSDR
+WORKDIR /src
+RUN git clone --depth=1 https://github.com/pothosware/SoapyPlutoSDR.git && \
+    cd SoapyPlutoSDR && \
     mkdir build && \
     cd build && \
     cmake .. && \
