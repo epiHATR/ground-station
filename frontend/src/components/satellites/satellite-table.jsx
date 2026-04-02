@@ -86,6 +86,8 @@ import { useNavigate } from "react-router-dom";
 import TransmittersDialog from "./transmitters-dialog.jsx";
 import EditIcon from '@mui/icons-material/Edit';
 import VisibilityIcon from '@mui/icons-material/Visibility';
+import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded';
+import ArrowDownwardRoundedIcon from '@mui/icons-material/ArrowDownwardRounded';
 
 function Pagination({page, onPageChange, className}) {
     const apiRef = useGridApiContext();
@@ -231,14 +233,38 @@ const SatelliteTable = React.memo(function SatelliteTable() {
                     return t('satellite_database.no_data');
                 }
 
-                // Count transmitters per band
-                const bandCounts = transmitters.reduce((acc, t) => {
-                    const band = getFrequencyBand(t['downlink_low']);
-                    acc[band] = (acc[band] || 0) + 1;
+                // Aggregate count and direction markers per band.
+                const bandDetails = transmitters.reduce((acc, transmitter) => {
+                    const upBand = transmitter['uplink_low'] != null
+                        ? getFrequencyBand(transmitter['uplink_low'])
+                        : null;
+                    const downBand = transmitter['downlink_low'] != null
+                        ? getFrequencyBand(transmitter['downlink_low'])
+                        : null;
+
+                    // Count each transmitter once per band (avoid double count if up/down same band).
+                    const uniqueBands = new Set([upBand, downBand].filter(Boolean));
+                    uniqueBands.forEach((band) => {
+                        if (!acc[band]) {
+                            acc[band] = { count: 0, uplink: false, downlink: false };
+                        }
+                        acc[band].count += 1;
+                    });
+
+                    if (upBand) {
+                        if (!acc[upBand]) acc[upBand] = { count: 0, uplink: false, downlink: false };
+                        acc[upBand].uplink = true;
+                    }
+
+                    if (downBand) {
+                        if (!acc[downBand]) acc[downBand] = { count: 0, uplink: false, downlink: false };
+                        acc[downBand].downlink = true;
+                    }
+
                     return acc;
                 }, {});
 
-                const bands = Object.keys(bandCounts);
+                const bands = Object.keys(bandDetails);
 
                 return (
                     <div style={{
@@ -251,7 +277,13 @@ const SatelliteTable = React.memo(function SatelliteTable() {
                         {bands.map((band, index) => (
                             <div key={index} style={{display: 'flex', alignItems: 'center', gap: 2}}>
                                 <Chip
-                                    label={`${band}`}
+                                    label={
+                                        <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.35 }}>
+                                            <Box component="span">{band}</Box>
+                                            {bandDetails[band].uplink && <ArrowUpwardRoundedIcon sx={{ fontSize: '0.85rem' }} />}
+                                            {bandDetails[band].downlink && <ArrowDownwardRoundedIcon sx={{ fontSize: '0.85rem' }} />}
+                                        </Box>
+                                    }
                                     size="small"
                                     sx={{
                                         height: '18px',
@@ -259,12 +291,15 @@ const SatelliteTable = React.memo(function SatelliteTable() {
                                         fontWeight: 'bold',
                                         backgroundColor: getBandColor(band),
                                         color: '#ffffff',
+                                        '& .MuiChip-label': {
+                                            px: 0.75
+                                        },
                                         '&:hover': {
                                             filter: 'brightness(90%)',
                                         }
                                     }}
                                 />
-                                <span>x {bandCounts[band]}</span>
+                                <span>x {bandDetails[band].count}</span>
                             </div>
                         ))}
                     </div>

@@ -10,6 +10,8 @@ import HeightIcon from '@mui/icons-material/Height';
 import SpeedIcon from '@mui/icons-material/Speed';
 import UpdateIcon from '@mui/icons-material/Update';
 import SatelliteIcon from '@mui/icons-material/Satellite';
+import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded';
+import ArrowDownwardRoundedIcon from '@mui/icons-material/ArrowDownwardRounded';
 import MyLocationIcon from '@mui/icons-material/MyLocation';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { getModulationDisplay } from '../../constants/modulations';
@@ -102,10 +104,29 @@ const OverviewSatelliteInfoCard = () => {
             });
     };
 
-    const bands = satelliteData && satelliteData['transmitters']
-        ? satelliteData['transmitters']
-            .map(t => getFrequencyBand(t['downlink_low']))
-            .filter((v, i, a) => a.indexOf(v) === i)
+    const bandDetails = satelliteData && satelliteData['transmitters']
+        ? Object.values(
+            satelliteData['transmitters'].reduce((acc, transmitter) => {
+                const upBand = transmitter['uplink_low'] != null
+                    ? getFrequencyBand(transmitter['uplink_low'])
+                    : null;
+                const downBand = transmitter['downlink_low'] != null
+                    ? getFrequencyBand(transmitter['downlink_low'])
+                    : null;
+
+                if (upBand) {
+                    if (!acc[upBand]) acc[upBand] = { band: upBand, uplink: false, downlink: false };
+                    acc[upBand].uplink = true;
+                }
+
+                if (downBand) {
+                    if (!acc[downBand]) acc[downBand] = { band: downBand, uplink: false, downlink: false };
+                    acc[downBand].downlink = true;
+                }
+
+                return acc;
+            }, {})
+        )
         : [];
 
     const modulations = satelliteData && satelliteData['transmitters']
@@ -377,16 +398,26 @@ const OverviewSatelliteInfoCard = () => {
                                     {t('satellite_info.frequency_bands')}
                                 </Typography>
                                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                                    {bands.map((band, index) => (
+                                    {bandDetails.map(({ band, uplink, downlink }) => (
                                         <Chip
-                                            key={index}
-                                            label={band}
+                                            key={`${band}-${uplink ? 'u' : ''}${downlink ? 'd' : ''}`}
+                                            label={
+                                                    <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.35 }}>
+                                                    <Box component="span">{band}</Box>
+                                                    {uplink && <ArrowUpwardRoundedIcon sx={{ fontSize: '0.85rem' }} />}
+                                                    {downlink && <ArrowDownwardRoundedIcon sx={{ fontSize: '0.85rem' }} />}
+                                                </Box>
+                                            }
                                             size="small"
                                             sx={{
                                                 backgroundColor: getBandColor(band),
                                                 color: 'common.white',
                                                 fontSize: '0.7rem',
-                                                height: 24
+                                                fontWeight: 700,
+                                                height: 24,
+                                                '& .MuiChip-label': {
+                                                    px: 1
+                                                }
                                             }}
                                         />
                                     ))}

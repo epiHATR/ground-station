@@ -678,16 +678,16 @@ export const getFrequencyBand = (frequency) => {
 
 export const getBandColor = (band) => {
     const colors = {
-        'HF': '#FF6B6B',
-        'VHF': '#28716d',
-        'UHF': '#1a4d59',
-        'L-band': '#4d6a5c',
-        'S-band': '#786948',
-        'C-band': '#635c88',
-        'X-band': '#885c6c',
-        'Ku-band': '#4b7560',
-        'K-band': '#7c2e8c',
-        'Ka-band': '#433487'
+        'HF': '#E76F51',
+        'VHF': '#2A9D8F',
+        'UHF': '#264653',
+        'L-band': '#1D3557',
+        'S-band': '#457B9D',
+        'C-band': '#5E60CE',
+        'X-band': '#9D4EDD',
+        'Ku-band': '#BC6C25',
+        'K-band': '#D62828',
+        'Ka-band': '#3A86FF'
     };
-    return colors[band] || '#666666';
+    return colors[band] || '#6C757D';
 };
