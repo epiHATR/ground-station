@@ -72,6 +72,14 @@ test.describe('Maintenance Settings', () => {
     // Should have some interactive elements
     expect(count).toBeGreaterThan(0);
   });
+
+  test('should display time drift diagnostics card', async ({ page }) => {
+    await page.goto('/settings/maintenance?mtab=diagnostics');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.getByText(/Frontend vs Backend Time/i)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(/Frontend Time/i)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(/Backend Time/i)).toBeVisible({ timeout: 10000 });
+  });
 });
 
 test.describe('About Page', () => {

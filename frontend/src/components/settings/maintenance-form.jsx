@@ -53,6 +53,7 @@ import {
     SessionSnapshotCard,
     SocketInfoCard,
     SystemInfoCard,
+    TimeDriftCard,
     TransmitterImportCard,
 } from './maintenance/index.jsx';
 
@@ -291,7 +292,7 @@ const MaintenanceForm = () => {
                 <TabPanel tabKey="redux-inspector">
                     <Stack spacing={2}>
                         <Grid container spacing={2}>
-                            <Grid size={{ xs: 12 }}>
+                            <Grid size={{ xs: 12, md: 6 }}>
                                 <Paper
                                     variant="outlined"
                                     sx={{
@@ -310,7 +311,7 @@ const MaintenanceForm = () => {
                 <TabPanel tabKey="system-control">
                     <Stack spacing={2}>
                         <Grid container spacing={2}>
-                            <Grid size={{ xs: 12 }}>
+                            <Grid size={{ xs: 12, md: 6 }}>
                                 <Paper
                                     variant="outlined"
                                     sx={{
@@ -330,32 +331,52 @@ const MaintenanceForm = () => {
                     <Stack spacing={2}>
                         <Grid container spacing={2}>
                             <Grid size={{ xs: 12, md: 6 }}>
-                                <Paper
-                                    variant="outlined"
-                                    sx={{
-                                        p: 2,
-                                        borderColor: 'divider',
-                                        borderRadius: 1.5,
-                                        height: '100%',
-                                    }}
-                                >
-                                    <BrowserFeaturesCard />
-                                    <CanvasDebugCard />
-                                </Paper>
+                                <Stack spacing={2}>
+                                    <Paper
+                                        variant="outlined"
+                                        sx={{
+                                            p: 2,
+                                            borderColor: 'divider',
+                                            borderRadius: 1.5,
+                                        }}
+                                    >
+                                        <TimeDriftCard />
+                                    </Paper>
+                                    <Paper
+                                        variant="outlined"
+                                        sx={{
+                                            p: 2,
+                                            borderColor: 'divider',
+                                            borderRadius: 1.5,
+                                        }}
+                                    >
+                                        <SocketInfoCard />
+                                    </Paper>
+                                </Stack>
                             </Grid>
-
                             <Grid size={{ xs: 12, md: 6 }}>
-                                <Paper
-                                    variant="outlined"
-                                    sx={{
-                                        p: 2,
-                                        borderColor: 'divider',
-                                        borderRadius: 1.5,
-                                        height: '100%',
-                                    }}
-                                >
-                                    <SocketInfoCard />
-                                </Paper>
+                                <Stack spacing={2}>
+                                    <Paper
+                                        variant="outlined"
+                                        sx={{
+                                            p: 2,
+                                            borderColor: 'divider',
+                                            borderRadius: 1.5,
+                                        }}
+                                    >
+                                        <BrowserFeaturesCard />
+                                    </Paper>
+                                    <Paper
+                                        variant="outlined"
+                                        sx={{
+                                            p: 2,
+                                            borderColor: 'divider',
+                                            borderRadius: 1.5,
+                                        }}
+                                    >
+                                        <CanvasDebugCard />
+                                    </Paper>
+                                </Stack>
                             </Grid>
                         </Grid>
                     </Stack>

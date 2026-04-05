@@ -192,7 +192,20 @@
     "all_features_supported": "All features supported!",
     "missing_feature_support": "Missing feature support",
     "all_features_message": "Your browser supports all the features needed for optimal waterfall display performance.",
-    "missing_features_message": "Your browser does not support all features needed for optimal waterfall display performance. The waterfall may still work but with reduced performance or functionality."
+    "missing_features_message": "Your browser does not support all features needed for optimal waterfall display performance. The waterfall may still work but with reduced performance or functionality.",
+    "time_drift_title": "Frontend vs Backend Time",
+    "time_drift_subtitle": "Compares browser time against backend server time using request midpoint estimation.",
+    "time_drift_refresh": "Refresh",
+    "time_drift_frontend_label": "Frontend Time",
+    "time_drift_backend_label": "Backend Time (estimated)",
+    "time_drift_delta_label": "Drift: {{value}} ms",
+    "time_drift_rtt_label": "Round-trip: {{value}} ms",
+    "time_drift_status_label": "Status: {{status}}",
+    "time_drift_status_success": "OK",
+    "time_drift_status_warning": "Warning",
+    "time_drift_status_error": "High drift",
+    "time_drift_last_sampled": "Last sampled: {{time}}",
+    "time_drift_error": "Failed to sample backend time: {{error}}"
   },
   "about": {
     "title": "About",

@@ -390,6 +390,10 @@ def get_full_version_info():
     except Exception:
         full_info["cpuArchitecture"] = "unknown"
 
+    now_utc = datetime.now(timezone.utc)
+    full_info["serverTimeEpochMs"] = int(now_utc.timestamp() * 1000)
+    full_info["serverTimeIsoUtc"] = now_utc.isoformat()
+
     return full_info
 
 
