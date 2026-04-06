@@ -559,28 +559,6 @@ const SatelliteDetailsTable = React.memo(function SatelliteDetailsTable() {
         }
     }, [columnVisibility]);
 
-    const filteredCountLabel = React.useMemo(() => {
-        const positions = selectedSatellitePositionsRef.current();
-        const rows = selectedSatellites || [];
-        if (quickFilterPreset === 'visible') {
-            return rows.filter((row) => getVisibilityState(positions?.[row.norad_id]?.el ?? null) === 'visible').length;
-        }
-        if (quickFilterPreset === 'rising') {
-            return rows.filter((row) => {
-                const visibility = getVisibilityState(positions?.[row.norad_id]?.el ?? null);
-                const trend = positions?.[row.norad_id]?.trend ?? null;
-                return visibility === 'visible' && (trend === 'rising_slow' || trend === 'rising_fast');
-            }).length;
-        }
-        if (quickFilterPreset === 'activeTx') {
-            return rows.filter((row) => (row.transmitters || []).some((tx) => tx.alive)).length;
-        }
-        if (quickFilterPreset === 'decayed') {
-            return rows.filter((row) => !!row.decayed || row.status === 'dead' || row.status === 're-entered').length;
-        }
-        return rows.length;
-    }, [selectedSatellites, quickFilterPreset, selectedSatellitePositionsRef]);
-
     useEffect(() => {
         dispatch(fetchSatelliteGroups({socket}))
             .unwrap()
@@ -707,7 +685,7 @@ const SatelliteDetailsTable = React.memo(function SatelliteDetailsTable() {
                 <Box sx={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', height: '100%'}}>
                     <Box sx={{display: 'flex', alignItems: 'center'}}>
                         <Typography variant="subtitle2" sx={{fontWeight: 'bold'}}>
-                            {t('satellites_table.title')} ({filteredCountLabel}/{selectedSatellites?.length || 0})
+                            {t('satellites_table.title')}
                         </Typography>
                     </Box>
                     <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
