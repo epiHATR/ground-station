@@ -42,7 +42,7 @@ import ExploreIcon from '@mui/icons-material/Explore';
 import SatelliteAltIcon from '@mui/icons-material/SatelliteAlt';
 import { store } from '../components/common/store.jsx';
 import { setSyncState } from '../components/satellites/synchronize-slice.jsx';
-import { setSatelliteData, setUITrackerValues } from '../components/target/target-slice.jsx';
+import { setSatelliteData, setUITrackerValues, setTrackerCommandStatus } from '../components/target/target-slice.jsx';
 import { setSynchronizing } from '../components/satellites/synchronize-slice.jsx';
 import { initializeAppData } from '../services/data-sync.js';
 import {
@@ -243,6 +243,10 @@ export const useSocketEventHandlers = (socket) => {
         // UI tracker state event
         socket.on("ui-tracker-state", (data) => {
             store.dispatch(setUITrackerValues(data));
+        });
+
+        socket.on("tracker-command-status", (data) => {
+            store.dispatch(setTrackerCommandStatus(data));
         });
 
         // File browser state updates (pub/sub model)
@@ -872,6 +876,7 @@ export const useSocketEventHandlers = (socket) => {
             socket.off("sat-sync-events");
             socket.off("satellite-tracking");
             socket.off("ui-tracker-state");
+            socket.off("tracker-command-status");
             socket.off("file_browser_state");
             socket.off("file_browser_error");
             socket.off("recording_state");

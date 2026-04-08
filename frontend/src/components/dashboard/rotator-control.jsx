@@ -45,6 +45,7 @@ import {
     canConnectRotator,
     isRotatorSelectionDisabled
 } from '../target/rotator-utils.js';
+import { ROTATOR_STATES, TRACKER_COMMAND_SCOPES, TRACKER_COMMAND_STATUS } from '../target/tracking-constants.js';
 import { useNavigate } from 'react-router-dom';
 
 
@@ -77,13 +78,25 @@ const RotatorControl = React.memo(function RotatorControl() {
         activePass,
         rotatorConnecting,
         rotatorDisconnecting,
+        trackerCommand,
     } = useSelector((state) => state.targetSatTrack);
 
     const { rigs } = useSelector((state) => state.rigs);
     const { rotators } = useSelector((state) => state.rotators);
+    const isRotatorCommandBusy = Boolean(
+        trackerCommand &&
+        trackerCommand.scope === TRACKER_COMMAND_SCOPES.ROTATOR &&
+        [TRACKER_COMMAND_STATUS.SUBMITTED, TRACKER_COMMAND_STATUS.STARTED].includes(trackerCommand.status)
+    );
+    const inFlightRotatorState = trackerCommand?.requestedState?.rotatorState;
+    const isConnectActionPending = isRotatorCommandBusy && inFlightRotatorState === ROTATOR_STATES.CONNECTED;
+    const isDisconnectActionPending = isRotatorCommandBusy && inFlightRotatorState === ROTATOR_STATES.DISCONNECTED;
+    const isTrackActionPending = isRotatorCommandBusy && inFlightRotatorState === ROTATOR_STATES.TRACKING;
+    const isStopActionPending = isRotatorCommandBusy && inFlightRotatorState === ROTATOR_STATES.STOPPED;
+    const isParkActionPending = isRotatorCommandBusy && inFlightRotatorState === ROTATOR_STATES.PARKED;
 
     const handleTrackingStop = () => {
-        const newTrackingState = {...trackingState, 'rotator_state': "stopped"};
+        const newTrackingState = {...trackingState, 'rotator_state': ROTATOR_STATES.STOPPED};
         dispatch(setTrackingStateInBackend({socket, data: newTrackingState}));
     };
 
@@ -91,7 +104,7 @@ const RotatorControl = React.memo(function RotatorControl() {
         const newTrackingState = createTrackingState({
             satelliteId,
             groupId,
-            rotatorState: "tracking",
+            rotatorState: ROTATOR_STATES.TRACKING,
             rigState: trackingState['rig_state'],
             selectedRadioRig,
             selectedRotator,
@@ -112,7 +125,7 @@ const RotatorControl = React.memo(function RotatorControl() {
         const newTrackingState = createTrackingState({
             satelliteId,
             groupId,
-            rotatorState: "parked",
+            rotatorState: ROTATOR_STATES.PARKED,
             rigState: trackingState['rig_state'],
             selectedRadioRig,
             selectedRotator,
@@ -129,7 +142,7 @@ const RotatorControl = React.memo(function RotatorControl() {
         const newTrackingState = createTrackingState({
             satelliteId,
             groupId,
-            rotatorState: "connected",
+            rotatorState: ROTATOR_STATES.CONNECTED,
             rigState: trackingState['rig_state'],
             selectedRadioRig,
             selectedRotator,
@@ -149,7 +162,7 @@ const RotatorControl = React.memo(function RotatorControl() {
         const newTrackingState = createTrackingState({
             satelliteId,
             groupId,
-            rotatorState: "disconnected",
+            rotatorState: ROTATOR_STATES.DISCONNECTED,
             rigState: trackingState['rig_state'],
             selectedRadioRig,
             selectedRotator,
@@ -415,8 +428,8 @@ const RotatorControl = React.memo(function RotatorControl() {
                     }}>
                         <Grid size="grow" style={{paddingRight: '0.5rem', flex: 1}}>
                             <Button
-                            loading={rotatorConnecting}
-                            disabled={!canConnectRotator(rotatorData, selectedRotator)}
+                            loading={isConnectActionPending || rotatorConnecting}
+                            disabled={isRotatorCommandBusy || !canConnectRotator(rotatorData, selectedRotator)}
                             fullWidth={true} variant="contained" color="success" style={{height: '40px'}}
                                     onClick={() => {
                                         connectRotator()
@@ -426,8 +439,8 @@ const RotatorControl = React.memo(function RotatorControl() {
                         </Grid>
                         <Grid size="grow" style={{paddingRight: '0.5rem', flex: 1.5}}>
                             <Button
-                                loading={rotatorDisconnecting}
-                                disabled={["disconnected"].includes(trackingState['rotator_state'])}
+                                loading={isDisconnectActionPending || rotatorDisconnecting}
+                                disabled={isRotatorCommandBusy || [ROTATOR_STATES.DISCONNECTED].includes(trackingState['rotator_state'])}
                                 fullWidth={true}
                                 variant="contained" color="error" style={{height: '40px'}}
                                 onClick={() => {
@@ -437,7 +450,9 @@ const RotatorControl = React.memo(function RotatorControl() {
                             </Button>
                         </Grid>
                         <Grid size="grow" style={{paddingRight: '0rem', flex: 1}}>
-                            <Button disabled={["disconnected"].includes(trackingState['rotator_state'])}
+                            <Button
+                                    loading={isParkActionPending}
+                                    disabled={isRotatorCommandBusy || [ROTATOR_STATES.DISCONNECTED].includes(trackingState['rotator_state'])}
                                     fullWidth={true} variant="contained" color="warning" style={{height: '40px'}}
                                     onClick={() => {
                                         parkRotator()
@@ -455,7 +470,8 @@ const RotatorControl = React.memo(function RotatorControl() {
                     }}>
                         <Grid size="grow" style={{paddingRight: '0.5rem'}}>
                             <Button fullWidth={true}
-                                    disabled={!canStartTracking(trackingState, satelliteId, selectedRotator)}
+                                    loading={isTrackActionPending}
+                                    disabled={isRotatorCommandBusy || !canStartTracking(trackingState, satelliteId, selectedRotator)}
                                     variant="contained" color="success" style={{height: '60px'}}
                                     onClick={()=>{handleTrackingStart()}}
                             >
@@ -464,7 +480,8 @@ const RotatorControl = React.memo(function RotatorControl() {
                         </Grid>
                         <Grid size="grow">
                             <Button fullWidth={true}
-                                    disabled={!canStopTracking(trackingState, satelliteId, selectedRotator)}
+                                    loading={isStopActionPending}
+                                    disabled={isRotatorCommandBusy || !canStopTracking(trackingState, satelliteId, selectedRotator)}
                                     variant="contained" color="error" style={{height: '60px'}}
                                     onClick={() => {handleTrackingStop()}}>
                                 {t('rotator_control.stop')}

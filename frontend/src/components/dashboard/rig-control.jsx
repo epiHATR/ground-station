@@ -58,6 +58,7 @@ import {setCenterFrequency} from "../waterfall/waterfall-slice.jsx";
 import LCDFrequencyDisplay from "../common/lcd-frequency-display.jsx";
 import SettingsIcon from '@mui/icons-material/Settings';
 import { useNavigate } from 'react-router-dom';
+import { RIG_STATES, TRACKER_COMMAND_SCOPES, TRACKER_COMMAND_STATUS } from '../target/tracking-constants.js';
 
 
 const RigControl = React.memo(function RigControl() {
@@ -85,7 +86,18 @@ const RigControl = React.memo(function RigControl() {
         selectedTransmitter,
         availableTransmitters,
         rigData,
+        trackerCommand,
     } = useSelector((state) => state.targetSatTrack);
+    const isRigCommandBusy = Boolean(
+        trackerCommand &&
+        trackerCommand.scope === TRACKER_COMMAND_SCOPES.RIG &&
+        [TRACKER_COMMAND_STATUS.SUBMITTED, TRACKER_COMMAND_STATUS.STARTED].includes(trackerCommand.status)
+    );
+    const inFlightRigState = trackerCommand?.requestedState?.rigState;
+    const isConnectRigActionPending = isRigCommandBusy && inFlightRigState === RIG_STATES.CONNECTED;
+    const isDisconnectRigActionPending = isRigCommandBusy && inFlightRigState === RIG_STATES.DISCONNECTED;
+    const isTrackRigActionPending = isRigCommandBusy && inFlightRigState === RIG_STATES.TRACKING;
+    const isStopRigActionPending = isRigCommandBusy && inFlightRigState === RIG_STATES.STOPPED;
 
     // Safeguard: Reset VFO if hardware rig is selected with VFO 3 or 4
     React.useEffect(() => {
@@ -136,7 +148,7 @@ const RigControl = React.memo(function RigControl() {
     const handleTrackingStop = () => {
         const newTrackingState = {
             ...trackingState,
-            'rig_state': "stopped",
+            'rig_state': RIG_STATES.STOPPED,
             'vfo1': selectedVFO1,
             'vfo2': selectedVFO2,
         };
@@ -158,7 +170,7 @@ const RigControl = React.memo(function RigControl() {
             'norad_id': satelliteId,
             'group_id': groupId,
             'rotator_state': trackingState['rotator_state'],
-            'rig_state': 'tracking',
+            'rig_state': RIG_STATES.TRACKING,
             'rig_id': selectedRadioRig,
             'rotator_id': selectedRotator,
             'transmitter_id': selectedTransmitter,
@@ -354,7 +366,7 @@ const RigControl = React.memo(function RigControl() {
     function connectRig() {
         const data = {
             ...trackingState,
-            'rig_state': "connected",
+            'rig_state': RIG_STATES.CONNECTED,
             'rig_id': selectedRadioRig,
             'rig_vfo': selectedRigVFO,
             'vfo1': selectedVFO1,
@@ -366,7 +378,7 @@ const RigControl = React.memo(function RigControl() {
     function disconnectRig() {
         const data = {
             ...trackingState,
-            'rig_state': "disconnected",
+            'rig_state': RIG_STATES.DISCONNECTED,
             'rig_id': selectedRadioRig,
             'rig_vfo': selectedRigVFO,
             'vfo1': selectedVFO1,
@@ -651,10 +663,12 @@ const RigControl = React.memo(function RigControl() {
                     }}>
                         <Grid size="grow" style={{paddingRight: '0.5rem', flex: 1}}>
                             <Button disabled={
-                                ["tracking", "connected", "stopped"].includes(trackingState['rig_state']) ||
+                                isRigCommandBusy ||
+                                [RIG_STATES.TRACKING, RIG_STATES.CONNECTED, RIG_STATES.STOPPED].includes(trackingState['rig_state']) ||
                                 ["none", ""].includes(selectedRotator) ||
                                 ["none", ""].includes(selectedRadioRig)
                             } fullWidth={true} variant="contained" color="success" style={{height: '50px'}}
+                                    loading={isConnectRigActionPending}
                                     onClick={() => {
                                         connectRig()
                                     }}>
@@ -662,9 +676,10 @@ const RigControl = React.memo(function RigControl() {
                             </Button>
                         </Grid>
                         <Grid size="grow" style={{paddingRight: '0rem', flex: 1}}>
-                            <Button disabled={["disconnected"].includes(trackingState['rig_state'])}
+                            <Button disabled={isRigCommandBusy || [RIG_STATES.DISCONNECTED].includes(trackingState['rig_state'])}
                                     fullWidth={true}
                                     variant="contained" color="error" style={{height: '50px'}}
+                                    loading={isDisconnectRigActionPending}
                                     onClick={() => {
                                         disconnectRig()
                                     }}>
@@ -681,12 +696,14 @@ const RigControl = React.memo(function RigControl() {
                     }}>
                         <Grid size="grow" style={{paddingRight: '0.5rem'}}>
                                 <Button fullWidth={true} disabled={
-                                    trackingState['rig_state'] === "tracking" || trackingState['rig_state'] === "disconnected" ||
+                                    isRigCommandBusy ||
+                                    trackingState['rig_state'] === RIG_STATES.TRACKING || trackingState['rig_state'] === RIG_STATES.DISCONNECTED ||
                                     satelliteId === "" ||
                                     ["none", ""].includes(selectedRadioRig)
                                     || ["none", ""].includes(selectedTransmitter)
                                 }
                                     variant="contained" color="success" style={{height: '60px'}}
+                                    loading={isTrackRigActionPending}
                                     onClick={()=>{handleTrackingStart()}}
                             >
                                 {t('rig_control.track_radio')}
@@ -695,9 +712,11 @@ const RigControl = React.memo(function RigControl() {
                         <Grid size="grow">
                             <Button fullWidth={true}
                                     disabled={
-                                ["stopped", "disconnected", "connected"].includes(trackingState['rig_state']) ||
+                                isRigCommandBusy ||
+                                [RIG_STATES.STOPPED, RIG_STATES.DISCONNECTED, RIG_STATES.CONNECTED].includes(trackingState['rig_state']) ||
                                         satelliteId === "" || ["none", ""].includes(selectedRadioRig)}
                                     variant="contained" color="error" style={{height: '60px'}}
+                                    loading={isStopRigActionPending}
                                     onClick={() => {handleTrackingStop()}}>
                                 {t('rig_control.stop')}
                             </Button>

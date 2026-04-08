@@ -155,7 +155,7 @@ export function createTrackingState({
  * @returns {boolean} True if rotator is connected
  */
 export function isRotatorConnected(trackingState) {
-    return !["disconnected"].includes(trackingState['rotator_state']);
+    return ![ROTATOR_STATES.DISCONNECTED].includes(trackingState['rotator_state']);
 }
 
 /**
@@ -165,7 +165,7 @@ export function isRotatorConnected(trackingState) {
  * @returns {boolean} True if rotator can be manually controlled
  */
 export function canControlRotator(rotatorData, trackingState) {
-    return rotatorData['connected'] && trackingState['rotator_state'] !== "tracking";
+    return rotatorData['connected'] && trackingState['rotator_state'] !== ROTATOR_STATES.TRACKING;
 }
 
 /**
@@ -176,7 +176,7 @@ export function canControlRotator(rotatorData, trackingState) {
  * @returns {boolean} True if tracking can be started
  */
 export function canStartTracking(trackingState, satelliteId, selectedRotator) {
-    return !["tracking", "disconnected"].includes(trackingState['rotator_state']) &&
+    return ![ROTATOR_STATES.TRACKING, ROTATOR_STATES.DISCONNECTED].includes(trackingState['rotator_state']) &&
            satelliteId !== "" &&
            !["none", ""].includes(selectedRotator);
 }
@@ -189,7 +189,12 @@ export function canStartTracking(trackingState, satelliteId, selectedRotator) {
  * @returns {boolean} True if tracking can be stopped
  */
 export function canStopTracking(trackingState, satelliteId, selectedRotator) {
-    return !["stopped", "parked", "disconnected", "connected"].includes(trackingState['rotator_state']) &&
+    return ![
+        ROTATOR_STATES.STOPPED,
+        ROTATOR_STATES.PARKED,
+        ROTATOR_STATES.DISCONNECTED,
+        ROTATOR_STATES.CONNECTED,
+    ].includes(trackingState['rotator_state']) &&
            satelliteId !== "" &&
            !["none", ""].includes(selectedRotator);
 }
@@ -210,5 +215,11 @@ export function canConnectRotator(rotatorData, selectedRotator) {
  * @returns {boolean} True if rotator selection should be disabled
  */
 export function isRotatorSelectionDisabled(trackingState) {
-    return ["tracking", "connected", "stopped", "parked"].includes(trackingState['rotator_state']);
+    return [
+        ROTATOR_STATES.TRACKING,
+        ROTATOR_STATES.CONNECTED,
+        ROTATOR_STATES.STOPPED,
+        ROTATOR_STATES.PARKED,
+    ].includes(trackingState['rotator_state']);
 }
+import { ROTATOR_STATES } from './tracking-constants.js';

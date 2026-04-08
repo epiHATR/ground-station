@@ -23,10 +23,19 @@ database schema.
 
 import asyncio
 import logging
-from typing import Any, Dict, Optional
+import time
+import uuid
+from dataclasses import dataclass
+from typing import Any, Dict, Optional, cast
 
 import crud
-from common.constants import TrackingStateNames
+from common.constants import (
+    RigStates,
+    RotatorStates,
+    TrackerCommandScopes,
+    TrackerCommandStatus,
+    TrackingStateNames,
+)
 from db import AsyncSessionLocal
 from tracker.ipc import (
     TRACKER_MSG_COMMAND,
@@ -42,6 +51,17 @@ from tracker.ipc import (
 logger = logging.getLogger("tracker-manager")
 
 
+@dataclass
+class PendingTrackingCommand:
+    command_id: str
+    sid: Optional[str]
+    requested_changes: Dict[str, Any]
+    desired_state: Dict[str, Any]
+    scope: str
+    submitted_at: float
+    started: bool = False
+
+
 class TrackerManager:
     """
     Manager for controlling the satellite tracker through database state updates.
@@ -54,6 +74,8 @@ class TrackerManager:
     def __init__(self, queue_to_tracker=None):
         self.queue_to_tracker = queue_to_tracker
         self.current_tracking_state: Optional[Dict[str, Any]] = None
+        self.pending_commands: Dict[str, PendingTrackingCommand] = {}
+        self.command_timeout_sec: float = 20.0
 
     def _send_to_tracker(self, msg_type: str, payload: Dict[str, Any]) -> None:
         if not self.queue_to_tracker:
@@ -77,7 +99,9 @@ class TrackerManager:
         self.current_tracking_state = dict(current_value)
         return self.current_tracking_state
 
-    async def update_tracking_state(self, **kwargs) -> Dict[str, Any]:
+    async def update_tracking_state(
+        self, requester_sid: Optional[str] = None, **kwargs
+    ) -> Dict[str, Any]:
         """
         Update any fields in the satellite tracking state.
 
@@ -128,9 +152,10 @@ class TrackerManager:
                 logger.error(f"Failed to get current tracking state: {current_state_reply}")
                 return dict(current_state_reply)
 
-            # Merge new values with existing state
-            # Handle case where data is None (tracking state doesn't exist yet)
             current_value = (current_state_reply.get("data") or {}).get("value", {})
+            effective_changes = {
+                key: value for key, value in kwargs.items() if current_value.get(key) != value
+            }
             updated_value = {**current_value, **kwargs}
 
             # Update tracking state in database
@@ -150,10 +175,23 @@ class TrackerManager:
             else:
                 logger.error(f"Failed to update tracking state: {result}")
 
+            command_id = None
+            command_scope = None
             if result.get("success"):
+                command_id = self._register_pending_command(
+                    requester_sid=requester_sid,
+                    requested_changes=effective_changes,
+                    desired_state=updated_value,
+                )
+                if command_id and command_id in self.pending_commands:
+                    command_scope = self.pending_commands[command_id].scope
                 await self._sync_tracker_context(updated_value)
 
-            return dict(result)
+            response = dict(result)
+            if command_id:
+                response["command_id"] = command_id
+                response["command_scope"] = command_scope or TrackerCommandScopes.TRACKING
+            return response
 
     async def get_tracking_state(self) -> Optional[Dict[str, Any]]:
         """
@@ -497,6 +535,168 @@ class TrackerManager:
                 rotators = await crud.hardware.fetch_rotators(dbsession, rotator_id=rotator_id)
                 if rotators.get("success") and rotators.get("data"):
                     self._send_to_tracker(TRACKER_MSG_SET_HARDWARE, {"rotator": rotators["data"]})
+
+    def _infer_scope(self, requested_changes: Dict[str, Any]) -> str:
+        keys = set(requested_changes.keys())
+        if {"rotator_state", "rotator_id"} & keys:
+            return cast(str, TrackerCommandScopes.ROTATOR)
+        if {"rig_state", "rig_id", "rig_vfo", "vfo1", "vfo2", "transmitter_id"} & keys:
+            return cast(str, TrackerCommandScopes.RIG)
+        if {"norad_id", "group_id"} & keys:
+            return cast(str, TrackerCommandScopes.TARGET)
+        return cast(str, TrackerCommandScopes.TRACKING)
+
+    def _register_pending_command(
+        self,
+        requester_sid: Optional[str],
+        requested_changes: Dict[str, Any],
+        desired_state: Dict[str, Any],
+    ) -> Optional[str]:
+        if not requested_changes:
+            return None
+        command_id = str(uuid.uuid4())
+        self.pending_commands[command_id] = PendingTrackingCommand(
+            command_id=command_id,
+            sid=requester_sid,
+            requested_changes=dict(requested_changes),
+            desired_state=dict(desired_state),
+            scope=self._infer_scope(requested_changes),
+            submitted_at=time.time(),
+        )
+        return command_id
+
+    @staticmethod
+    def _state_keys_match(actual_tracking_state: Dict[str, Any], expected: Dict[str, Any]) -> bool:
+        for key, value in expected.items():
+            if key not in actual_tracking_state:
+                continue
+            if actual_tracking_state.get(key) != value:
+                return False
+        return True
+
+    @staticmethod
+    def _rotator_success_for_state(desired_state: str, rotator_data: Dict[str, Any]) -> bool:
+        if desired_state == RotatorStates.CONNECTED:
+            return bool(rotator_data.get("connected"))
+        if desired_state == RotatorStates.DISCONNECTED:
+            return not bool(rotator_data.get("connected"))
+        if desired_state == RotatorStates.TRACKING:
+            return bool(rotator_data.get("connected")) and bool(rotator_data.get("tracking"))
+        if desired_state == RotatorStates.STOPPED:
+            return bool(rotator_data.get("connected")) and bool(rotator_data.get("stopped"))
+        if desired_state == RotatorStates.PARKED:
+            return bool(rotator_data.get("connected")) and bool(rotator_data.get("parked"))
+        return True
+
+    @staticmethod
+    def _rig_success_for_state(desired_state: str, rig_data: Dict[str, Any]) -> bool:
+        if desired_state == RigStates.CONNECTED:
+            return bool(rig_data.get("connected"))
+        if desired_state == RigStates.DISCONNECTED:
+            return not bool(rig_data.get("connected"))
+        if desired_state == RigStates.TRACKING:
+            return bool(rig_data.get("connected")) and bool(rig_data.get("tracking"))
+        if desired_state == RigStates.STOPPED:
+            return bool(rig_data.get("connected")) and bool(rig_data.get("stopped"))
+        return True
+
+    def _is_command_succeeded(
+        self, command: PendingTrackingCommand, tracking_update: Dict[str, Any]
+    ) -> bool:
+        tracking_state = tracking_update.get("tracking_state") or {}
+        rotator_data = tracking_update.get("rotator_data") or {}
+        rig_data = tracking_update.get("rig_data") or {}
+
+        if not self._state_keys_match(tracking_state, command.requested_changes):
+            return False
+
+        desired_rotator_state = command.requested_changes.get("rotator_state")
+        if desired_rotator_state and not self._rotator_success_for_state(
+            desired_rotator_state, rotator_data
+        ):
+            return False
+
+        desired_rig_state = command.requested_changes.get("rig_state")
+        if desired_rig_state and not self._rig_success_for_state(desired_rig_state, rig_data):
+            return False
+
+        return True
+
+    def process_tracking_update(self, tracking_update: Dict[str, Any]) -> list[Dict[str, Any]]:
+        if not self.pending_commands:
+            return []
+
+        now = time.time()
+        tracking_state = tracking_update.get("tracking_state") or {}
+        rotator_data = tracking_update.get("rotator_data") or {}
+        rig_data = tracking_update.get("rig_data") or {}
+
+        status_events: list[Dict[str, Any]] = []
+        to_remove: list[str] = []
+
+        for command_id, command in self.pending_commands.items():
+            if not command.started and self._state_keys_match(
+                tracking_state, command.requested_changes
+            ):
+                command.started = True
+                status_events.append(
+                    {
+                        "command_id": command.command_id,
+                        "status": TrackerCommandStatus.STARTED,
+                        "scope": command.scope,
+                    }
+                )
+
+            if self._is_command_succeeded(command, tracking_update):
+                status_events.append(
+                    {
+                        "command_id": command.command_id,
+                        "status": TrackerCommandStatus.SUCCEEDED,
+                        "scope": command.scope,
+                    }
+                )
+                to_remove.append(command_id)
+                continue
+
+            if command.requested_changes.get("rotator_state") and rotator_data.get("error"):
+                status_events.append(
+                    {
+                        "command_id": command.command_id,
+                        "status": TrackerCommandStatus.FAILED,
+                        "scope": command.scope,
+                        "reason": "rotator_error",
+                    }
+                )
+                to_remove.append(command_id)
+                continue
+
+            if command.requested_changes.get("rig_state") and rig_data.get("error"):
+                status_events.append(
+                    {
+                        "command_id": command.command_id,
+                        "status": TrackerCommandStatus.FAILED,
+                        "scope": command.scope,
+                        "reason": "rig_error",
+                    }
+                )
+                to_remove.append(command_id)
+                continue
+
+            if now - command.submitted_at > self.command_timeout_sec:
+                status_events.append(
+                    {
+                        "command_id": command.command_id,
+                        "status": TrackerCommandStatus.FAILED,
+                        "scope": command.scope,
+                        "reason": "timeout",
+                    }
+                )
+                to_remove.append(command_id)
+
+        for command_id in to_remove:
+            self.pending_commands.pop(command_id, None)
+
+        return status_events
 
     def send_command(self, command: str, data: Optional[Dict[str, Any]] = None) -> None:
         self._send_to_tracker(TRACKER_MSG_COMMAND, {"command": command, "data": data})

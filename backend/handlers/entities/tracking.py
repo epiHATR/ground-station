@@ -18,6 +18,7 @@
 from typing import Any, Dict, Optional, Union
 
 import crud
+from common.constants import RigStates, SocketEvents, TrackerCommandScopes, TrackerCommandStatus
 from db import AsyncSessionLocal
 from session.tracker import session_tracker
 from tracker.data import compiled_satellite_data, get_ui_tracker_state
@@ -156,7 +157,24 @@ async def set_tracking_state(
 
     # Use TrackerManager to update tracking state
     manager = get_tracker_manager()
-    result = await manager.update_tracking_state(**value)
+    result = await manager.update_tracking_state(requester_sid=sid, **value)
+    command_id = result.get("command_id")
+
+    command_scope = result.get("command_scope", TrackerCommandScopes.TRACKING)
+    requested_state = {
+        "rotator_state": value.get("rotator_state"),
+        "rig_state": value.get("rig_state"),
+    }
+    if command_id:
+        await sio.emit(
+            SocketEvents.TRACKER_COMMAND_STATUS,
+            {
+                "command_id": command_id,
+                "status": TrackerCommandStatus.SUBMITTED,
+                "scope": command_scope,
+                "requested_state": requested_state,
+            },
+        )
 
     # Track session's rig and VFO selection
     if value:
@@ -173,7 +191,7 @@ async def set_tracking_state(
             logger.debug(f"Session {sid} selected VFO {rig_vfo}")
 
         # Unlock VFOs when tracking stops for this SDR
-        if rig_state == "stopped" and rig_id and rig_id != "none":
+        if rig_state == RigStates.STOPPED and rig_id and rig_id != "none":
             # Note: VFO locking state (lockedTransmitterId) is UI-only and managed by the frontend
             # No backend action needed when tracking stops
             logger.info(f"Tracking stopped for session {sid}")
@@ -185,7 +203,12 @@ async def set_tracking_state(
 
     return {
         "success": result.get("success", False),
-        "data": result.get("data", {}).get("value", value),
+        "data": {
+            "value": result.get("data", {}).get("value", value),
+            "command_id": command_id,
+            "command_scope": command_scope,
+            "requested_state": requested_state,
+        },
     }
 
 

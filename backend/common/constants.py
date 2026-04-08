@@ -29,6 +29,7 @@ class SocketEvents:
     # Satellite Tracking
     SATELLITE_TRACKING = "satellite-tracking"
     UI_TRACKER_STATE = "ui-tracker-state"
+    TRACKER_COMMAND_STATUS = "tracker-command-status"
 
     # SDR Events
     SDR_STATUS = "sdr-status"
@@ -81,6 +82,46 @@ class TrackingStateNames:
     """Database tracking state names"""
 
     SATELLITE_TRACKING = "satellite-tracking"
+
+
+# ============================================================================
+# Tracking State Values
+# ============================================================================
+class RotatorStates:
+    """Allowed rotator state values in tracking_state."""
+
+    CONNECTED = "connected"
+    DISCONNECTED = "disconnected"
+    TRACKING = "tracking"
+    STOPPED = "stopped"
+    PARKED = "parked"
+
+
+class RigStates:
+    """Allowed rig state values in tracking_state."""
+
+    CONNECTED = "connected"
+    DISCONNECTED = "disconnected"
+    TRACKING = "tracking"
+    STOPPED = "stopped"
+
+
+class TrackerCommandStatus:
+    """Tracker command lifecycle status values."""
+
+    SUBMITTED = "submitted"
+    STARTED = "started"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
+class TrackerCommandScopes:
+    """Tracker command target scopes."""
+
+    ROTATOR = "rotator"
+    RIG = "rig"
+    TARGET = "target"
+    TRACKING = "tracking"
 
 
 # ============================================================================

@@ -19,7 +19,8 @@ import asyncio
 import logging
 from typing import Any, Dict
 
-from tracker.runner import queue_from_tracker
+from common.constants import SocketEvents
+from tracker.runner import get_tracker_manager, queue_from_tracker
 from vfos.updates import handle_vfo_updates_for_tracking
 
 logger = logging.getLogger(__name__)
@@ -57,6 +58,16 @@ async def handle_tracker_messages(sockio):
                     # Handle VFO updates for SDR tracking
                     if event == "satellite-tracking" and data.get("rig_data"):
                         await handle_vfo_updates_for_tracking(sockio, data)
+                    if event == SocketEvents.SATELLITE_TRACKING:
+                        try:
+                            manager = get_tracker_manager()
+                            status_events = manager.process_tracking_update(data)
+                            for status in status_events:
+                                await sockio.emit(SocketEvents.TRACKER_COMMAND_STATUS, status)
+                        except RuntimeError:
+                            logger.debug(
+                                "TrackerManager not initialized while processing tracking update"
+                            )
 
             await asyncio.sleep(0.1)
         except Exception as e:  # pragma: no cover - best effort
