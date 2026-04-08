@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from audio.audiobroadcaster import AudioBroadcaster
 from audio.audiostreamer import WebAudioStreamer
 from common.arguments import arguments
+from common.audio_queue_config import get_audio_queue_config
 from common.logger import logger
 from db import *  # noqa: F401,F403
 from db import engine  # Explicit import for type checker
@@ -51,9 +52,8 @@ _needs_initial_sync: bool = False
 
 # Audio distribution system
 # Demodulators write to audio_queue, AudioBroadcaster distributes to multiple consumers
-# Keep input queue small (5-10 chunks) to minimize tuning lag
-# At 1024 samples/chunk @ 44.1kHz = 23ms/chunk, 10 chunks = 230ms latency
-audio_queue: queue.Queue = queue.Queue(maxsize=10)
+audio_cfg = get_audio_queue_config()
+audio_queue: queue.Queue = queue.Queue(maxsize=audio_cfg.global_audio_queue_size)
 audio_broadcaster: AudioBroadcaster = AudioBroadcaster(audio_queue)
 
 # Background task manager (initialized after sio is created)
@@ -83,7 +83,9 @@ async def lifespan(fastapiapp: FastAPI):
     shutdown.audio_broadcaster = audio_broadcaster
 
     # Subscribe consumers to broadcaster
-    playback_queue = audio_broadcaster.subscribe("playback", maxsize=10)
+    playback_queue = audio_broadcaster.subscribe(
+        "playback", maxsize=audio_cfg.web_audio_playback_queue_size
+    )
     shutdown.audio_consumer = WebAudioStreamer(playback_queue, sio, event_loop)
     shutdown.audio_consumer.start()
 

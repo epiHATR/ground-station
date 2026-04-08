@@ -1,9 +1,14 @@
+import {
+    AUDIO_WORKER_CATCHUP_RETAIN_CHUNKS,
+    AUDIO_WORKER_MAX_QUEUE_FOR_CATCHUP,
+    AUDIO_WORKER_MAX_QUEUE_SIZE,
+} from './audio-buffer-config.js';
+
 class AudioProcessor {
     constructor() {
         this.audioQueue = [];
         this.processingQueue = false;
-        // Keep queue small (3-5 chunks) to minimize tuning lag
-        this.maxQueueSize = 5;
+        this.maxQueueSize = AUDIO_WORKER_MAX_QUEUE_SIZE;
         // Track peak audio level (RMS) for VU meter
         this.currentAudioLevel = 0;
     }
@@ -73,12 +78,10 @@ class AudioProcessor {
 
     processQueue() {
         // Catchup mode: if queue is too large, jump to live audio
-        const MAX_QUEUE_FOR_CATCHUP = 8;
-
-        if (this.audioQueue.length > MAX_QUEUE_FOR_CATCHUP) {
+        if (this.audioQueue.length > AUDIO_WORKER_MAX_QUEUE_FOR_CATCHUP) {
             // Drop everything except last 2 chunks to get back to live audio
             console.warn(`Audio queue overrun (${this.audioQueue.length} chunks), jumping to live audio`);
-            this.audioQueue = this.audioQueue.slice(-2);
+            this.audioQueue = this.audioQueue.slice(-AUDIO_WORKER_CATCHUP_RETAIN_CHUNKS);
         }
 
         // Process all available chunks at once for continuous audio

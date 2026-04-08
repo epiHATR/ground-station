@@ -21,6 +21,7 @@ import signal
 import threading
 import time
 
+from common.audio_queue_config import get_audio_queue_config
 from pipeline.config.decoderconfigservice import decoder_config_service
 from pipeline.registries.decoderregistry import decoder_registry
 from pipeline.registries.demodulatorregistry import demodulator_registry
@@ -43,6 +44,7 @@ class DecoderManager:
         self.logger = logging.getLogger("decoder-manager")
         self.processes = processes
         self.demodulator_manager = demodulator_manager
+        self.audio_cfg = get_audio_queue_config()
         # Single-flight guard for starts per (SDR, session, VFO)
         self._start_locks = {}
         # Track start-in-progress and last-start timestamps to coalesce near-simultaneous starts
@@ -395,7 +397,9 @@ class DecoderManager:
                 # Subscribe decoder to audio broadcaster
                 # Use multiprocessing queue for process-based decoders (AFSK, etc.)
                 decoder_audio_queue = audio_broadcaster.subscribe(
-                    f"decoder:{session_id}", maxsize=10, for_process=True
+                    f"decoder:{session_id}",
+                    maxsize=self.audio_cfg.audio_decoder_queue_size,
+                    for_process=True,
                 )
 
                 # Resolve decoder configuration using DecoderConfigService

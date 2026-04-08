@@ -24,6 +24,7 @@ from typing import Any, Dict, Optional, Tuple
 import numpy as np
 from scipy import signal
 
+from common.audio_queue_config import get_audio_queue_config
 from vfos.state import VFOManager
 
 logger = logging.getLogger("fm-stereo-demodulator")
@@ -62,6 +63,7 @@ class FMStereoDemodulator(threading.Thread):
         self.vfo_number = vfo_number  # VFO number for multi-VFO mode
         self.running = True
         self.vfo_manager = VFOManager()
+        self.audio_cfg = get_audio_queue_config()
 
         # Audio output parameters
         self.audio_sample_rate = 44100  # 44.1 kHz audio output
@@ -667,7 +669,11 @@ class FMStereoDemodulator(threading.Thread):
                     # CRITICAL: Limit buffer size to prevent unbounded growth
                     # If buffer grows too large (>10 chunks), drop oldest data
                     # Note: chunk size is doubled for stereo (L+R interleaved)
-                    max_buffer_samples = self.target_chunk_size * 2 * 10
+                    max_buffer_samples = (
+                        self.target_chunk_size
+                        * 2
+                        * self.audio_cfg.demod_audio_internal_buffer_chunks
+                    )
                     if len(self.audio_buffer) > max_buffer_samples:
                         # Keep only the most recent data
                         self.audio_buffer = self.audio_buffer[-max_buffer_samples:]

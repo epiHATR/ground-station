@@ -3,6 +3,10 @@ import { useDispatch, useSelector } from 'react-redux';
 import { toast } from '../../utils/toast-with-timestamp.jsx';
 import { registerFlushCallback, unregisterFlushCallback } from './audio-service.js';
 import { setVfoMuted } from '../waterfall/vfo-marker/vfo-slice.jsx';
+import {
+    AUDIO_AUTO_FLUSH_CHECK_INTERVAL_MS,
+    AUDIO_AUTO_FLUSH_MAX_BUFFER_SECONDS
+} from './audio-buffer-config.js';
 
 const AudioContext = createContext({
     audioEnabled: false,
@@ -426,17 +430,15 @@ export const AudioProvider = ({ children }) => {
     useEffect(() => {
         if (!audioEnabled) return;
 
-        const MAX_BUFFER_SECONDS = 2.0; // Threshold before auto-flush
-
         const monitorInterval = setInterval(() => {
             for (let vfoNumber = 1; vfoNumber <= 4; vfoNumber++) {
                 const bufferLength = getAudioBufferLength(vfoNumber);
-                if (bufferLength > MAX_BUFFER_SECONDS) {
+                if (bufferLength > AUDIO_AUTO_FLUSH_MAX_BUFFER_SECONDS) {
                     console.warn(`VFO ${vfoNumber} buffer too large (${bufferLength.toFixed(2)}s), flushing to prevent lag`);
                     flushAudioBuffers(vfoNumber);
                 }
             }
-        }, 500); // Check every 500ms
+        }, AUDIO_AUTO_FLUSH_CHECK_INTERVAL_MS);
 
         return () => clearInterval(monitorInterval);
     }, [audioEnabled, getAudioBufferLength, flushAudioBuffers]);

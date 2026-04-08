@@ -18,6 +18,7 @@ import logging
 import queue as queue_module
 
 from audio.audiobroadcaster import AudioBroadcaster
+from common.audio_queue_config import get_audio_queue_config
 
 
 class ConsumerManager:
@@ -38,6 +39,7 @@ class ConsumerManager:
         """
         self.logger = logging.getLogger("consumer-manager")
         self.processes = processes
+        self.audio_cfg = get_audio_queue_config()
 
     def _start_iq_consumer(
         self,
@@ -184,7 +186,9 @@ class ConsumerManager:
             audio_broadcaster_instance = None
             if storage_key == "demodulators":
                 # Create input queue for the audio broadcaster
-                broadcaster_input_queue: queue_module.Queue = queue_module.Queue(maxsize=10)
+                broadcaster_input_queue: queue_module.Queue = queue_module.Queue(
+                    maxsize=self.audio_cfg.per_vfo_audio_broadcast_input_size
+                )
 
                 # Create and start the audio broadcaster
                 audio_broadcaster_instance = AudioBroadcaster(

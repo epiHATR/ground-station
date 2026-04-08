@@ -24,6 +24,7 @@ from typing import Any, Dict, Optional, Tuple
 import numpy as np
 from scipy import signal
 
+from common.audio_queue_config import get_audio_queue_config
 from vfos.state import VFOManager
 
 logger = logging.getLogger("am-demodulator")
@@ -56,6 +57,7 @@ class AMDemodulator(threading.Thread):
         self.vfo_number = vfo_number  # VFO number for multi-VFO mode
         self.running = True
         self.vfo_manager = VFOManager()
+        self.audio_cfg = get_audio_queue_config()
 
         # Audio output parameters
         self.audio_sample_rate = 44100  # 44.1 kHz audio output
@@ -501,7 +503,9 @@ class AMDemodulator(threading.Thread):
 
                     # CRITICAL: Limit buffer size to prevent unbounded growth
                     # If buffer grows too large (>10 chunks), drop oldest data
-                    max_buffer_samples = self.target_chunk_size * 10
+                    max_buffer_samples = (
+                        self.target_chunk_size * self.audio_cfg.demod_audio_internal_buffer_chunks
+                    )
                     if len(self.audio_buffer) > max_buffer_samples:
                         # Keep only the most recent data
                         self.audio_buffer = self.audio_buffer[-max_buffer_samples:]
