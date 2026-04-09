@@ -164,7 +164,7 @@ const BookmarkCanvas = ({
             .filter(transmitter => transmitter.downlink_observed_freq > 0 && isSourceEnabled(transmitter.source))
             .map(transmitter => ({
                 frequency: transmitter.downlink_observed_freq,
-                label: `${satelliteData['details']['name']} - ${transmitter.description || 'Unknown'} - Corrected: ${preciseHumanizeFrequency(transmitter.downlink_observed_freq)}`,
+                label: `${transmitter.description || 'Unknown'}`,
                 color: theme.palette.warning.main,
                 metadata: {
                     type: 'doppler_shift',
@@ -236,24 +236,58 @@ const BookmarkCanvas = ({
         const verticalSpacing = textHeight + padding * 2 + labelGap; // Total height of a label plus gap
         const baseY = 16; // Base Y position for the first label
         const bookmarkLabelOffset = 20; // Vertical offset from base position for bookmark labels
-        const maxLabelTextWidth = 220;
-
-        const truncateLabelToWidth = (text) => {
-            const labelText = String(text ?? '');
-            if (ctx.measureText(labelText).width <= maxLabelTextWidth) {
-                return labelText;
-            }
-            const suffix = '...';
-            let truncated = labelText;
-            while (truncated.length > 0 && ctx.measureText(`${truncated}${suffix}`).width > maxLabelTextWidth) {
-                truncated = truncated.slice(0, -1);
-            }
-            return `${truncated}${suffix}`;
-        };
 
         const getLabelAccentColor = (bookmark) => {
             const sourceStyle = getBookmarkSourceStyle(bookmark.metadata?.source, theme);
             return sourceStyle.accent;
+        };
+
+        const toShortTransmitterName = (label) => {
+            const raw = String(label ?? '');
+            const normalized = raw.split(' (')[0].split(' - ')[0].trim();
+            if (!normalized) {
+                return 'Unknow...';
+            }
+            return `${normalized.slice(0, 6)}...`;
+        };
+
+        const getClusterKey = (bookmark) => {
+            const frequencyKey = Math.round(Number(bookmark.frequency) || 0);
+            const sourceKey = bookmark.metadata?.source || 'unknown';
+            const typeKey = bookmark.metadata?.type || 'unknown';
+            const aliveKey = typeof bookmark.metadata?.alive === 'boolean' ? String(bookmark.metadata.alive) : 'unknown';
+            return `${frequencyKey}|${sourceKey}|${typeKey}|${aliveKey}`;
+        };
+
+        const clusterBookmarks = (items) => {
+            const clusterMap = new Map();
+            items.forEach((bookmark) => {
+                const key = getClusterKey(bookmark);
+                if (!clusterMap.has(key)) {
+                    clusterMap.set(key, []);
+                }
+                clusterMap.get(key).push(bookmark);
+            });
+
+            return Array.from(clusterMap.values()).map((clusterItems) => {
+                const primary = clusterItems[0];
+                const maxLabelParts = 6;
+                const shortParts = clusterItems.map((item) => toShortTransmitterName(item.label));
+                const visibleParts = shortParts.slice(0, maxLabelParts);
+                const hiddenCount = Math.max(0, shortParts.length - visibleParts.length);
+                const label = clusterItems.length > 1
+                    ? `${visibleParts.join(', ')}${hiddenCount > 0 ? ` +${hiddenCount}` : ''}`
+                    : primary.label;
+
+                return {
+                    ...primary,
+                    label,
+                    metadata: {
+                        ...primary.metadata,
+                        cluster_count: clusterItems.length,
+                    }
+                };
+            });
         };
 
         // First, identify all transmitter IDs that have doppler shift bookmarks
@@ -268,8 +302,12 @@ const BookmarkCanvas = ({
         // Draw bookmarks in order: neighbors first (bottom layer), then main transmitters and doppler (top layer)
         if (bookmarks.length) {
             // Separate bookmarks by type for layered rendering
-            const neighborBookmarks = bookmarks.filter(b => b.metadata?.type === 'neighbor_transmitter');
-            const mainBookmarks = bookmarks.filter(b => b.metadata?.type !== 'neighbor_transmitter');
+            const neighborBookmarks = clusterBookmarks(
+                bookmarks.filter(b => b.metadata?.type === 'neighbor_transmitter')
+            );
+            const mainBookmarks = clusterBookmarks(
+                bookmarks.filter(b => b.metadata?.type !== 'neighbor_transmitter')
+            );
 
             let visibleBookmarkIndex = 0;
 
@@ -330,11 +368,8 @@ const BookmarkCanvas = ({
                     const ledRadius = 2.5;
                     const ledGap = 5;
                     const ledReserve = hasAliveStatus ? (ledRadius * 2 + ledGap) : 0;
-                    const typeIndicatorWidth = 6;
-                    const typeIndicatorGap = 6;
-                    const typeIndicatorReserve = typeIndicatorWidth + typeIndicatorGap;
-                    const leftReserve = ledReserve + typeIndicatorReserve;
-                    const displayLabel = truncateLabelToWidth(bookmark.label);
+                    const leftReserve = ledReserve;
+                    const displayLabel = bookmark.label;
                     const textMetrics = ctx.measureText(displayLabel);
                     const textWidth = textMetrics.width;
                     const boxWidth = textWidth + padding * 2 + leftReserve;
@@ -364,12 +399,6 @@ const BookmarkCanvas = ({
                     ctx.globalAlpha = 0.2;
                     ctx.lineWidth = 1;
                     ctx.stroke();
-                    ctx.globalAlpha = 1.0;
-
-                    // Type color indicator inside label (left stripe)
-                    ctx.fillStyle = getLabelAccentColor(bookmark);
-                    ctx.globalAlpha = 0.9;
-                    ctx.fillRect(boxLeft + padding, boxTop + 2, typeIndicatorWidth, boxHeight - 4);
                     ctx.globalAlpha = 1.0;
 
                     // Draw the text
@@ -502,7 +531,7 @@ const BookmarkCanvas = ({
                     const typeIndicatorGap = 6;
                     const typeIndicatorReserve = typeIndicatorWidth + typeIndicatorGap;
                     const leftReserve = ledReserve + typeIndicatorReserve;
-                    const displayLabel = truncateLabelToWidth(bookmark.label);
+                    const displayLabel = bookmark.label;
                     const textMetrics = ctx.measureText(displayLabel);
                     const textWidth = textMetrics.width;
                     const boxWidth = textWidth + padding * 2 + leftReserve;
@@ -580,7 +609,7 @@ const BookmarkCanvas = ({
                 // For doppler_shift bookmarks - track their index separately for stacking
                 if (bookmark.label && isDopplerShift) {
                     // Find the index of this doppler bookmark among all doppler bookmarks
-                    const dopplerBookmarks = bookmarks.filter(b =>
+                    const dopplerBookmarks = mainBookmarks.filter(b =>
                         b.metadata?.type === 'doppler_shift' &&
                         b.frequency >= startFreq &&
                         b.frequency <= endFreq
@@ -609,7 +638,7 @@ const BookmarkCanvas = ({
                     const typeIndicatorGap = 6;
                     const typeIndicatorReserve = typeIndicatorWidth + typeIndicatorGap;
                     const leftReserve = ledReserve + typeIndicatorReserve;
-                    const displayLabel = truncateLabelToWidth(bookmark.label);
+                    const displayLabel = bookmark.label;
                     const textMetrics = ctx.measureText(displayLabel);
                     const textWidth = textMetrics.width;
                     const boxWidth = textWidth + padding * 2 + leftReserve;
