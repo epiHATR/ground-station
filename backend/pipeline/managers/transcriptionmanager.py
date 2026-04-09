@@ -19,6 +19,8 @@ import threading
 import time
 from typing import Any, Dict, Optional
 
+from audio.deepgramtranscriptionworker import DeepgramTranscriptionWorker
+from audio.geminitranscriptionworker import GeminiTranscriptionWorker
 from common.audio_queue_config import get_audio_queue_config
 
 
@@ -238,8 +240,6 @@ class TranscriptionManager:
                 # Create the appropriate worker based on provider
                 try:
                     if provider == "gemini":
-                        from audio.geminitranscriptionworker import GeminiTranscriptionWorker
-
                         transcription_worker = GeminiTranscriptionWorker(
                             transcription_queue=transcription_queue,
                             sio=self.sio,
@@ -253,8 +253,6 @@ class TranscriptionManager:
                             transmitter=transmitter,
                         )
                     elif provider == "deepgram":
-                        from audio.deepgramtranscriptionworker import DeepgramTranscriptionWorker
-
                         transcription_worker = DeepgramTranscriptionWorker(
                             transcription_queue=transcription_queue,
                             sio=self.sio,
