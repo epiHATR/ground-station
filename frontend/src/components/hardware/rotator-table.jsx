@@ -319,6 +319,7 @@ export default function AntennaRotatorTable() {
                         rows={rotators}
                         columns={columns}
                         checkboxSelection
+                        disableRowSelectionExcludeModel
                         onRowSelectionModelChange={(selected) => {
                             setSelected(toSelectedIds(selected));
                         }}

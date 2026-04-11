@@ -918,6 +918,7 @@ export default function SDRsPage() {
                             }))}
                         columns={columns}
                         checkboxSelection
+                        disableRowSelectionExcludeModel
                         onRowSelectionModelChange={(selected) => {
                             setSelected(toSelectedIds(selected));
                         }}

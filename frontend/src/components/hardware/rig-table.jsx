@@ -190,6 +190,7 @@ export default function RigTable() {
                         rows={rigs}
                         columns={columns}
                         checkboxSelection
+                        disableRowSelectionExcludeModel
                         rowSelectionModel={rowSelectionModel}
                         onRowSelectionModelChange={(selected) => {
                             dispatch(setSelected(toSelectedIds(selected)));
