@@ -82,6 +82,10 @@ const HardwareSettingsPopover = () => {
     useEffect(() => {
         if (!socket) return;
 
+        // Component can mount after the socket is already connected
+        // (e.g. after app-provider remount when navigation changes).
+        setConnected(Boolean(socket.connected));
+
         const handleConnect = () => {
             setConnected(true);
         };
