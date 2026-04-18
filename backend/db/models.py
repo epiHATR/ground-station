@@ -352,7 +352,11 @@ class MonitoredCelestial(Base):
 
     id = Column(String, primary_key=True, nullable=False)
     display_name = Column(String, nullable=False)
-    command = Column(String, nullable=False, unique=True, index=True)
+    target_type = Column(
+        String, nullable=False, default="mission", server_default="mission", index=True
+    )
+    command = Column(String, nullable=True, index=True)
+    body_id = Column(String, nullable=True, index=True)
     color = Column(String, nullable=True)
     enabled = Column(Boolean, nullable=False, default=True, index=True)
     last_refresh_at = Column(AwareDateTime, nullable=True)

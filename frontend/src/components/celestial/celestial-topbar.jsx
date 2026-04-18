@@ -5,6 +5,7 @@ import {
     Button,
     Chip,
     FormControl,
+    InputLabel,
     Dialog,
     DialogActions,
     DialogContent,
@@ -149,29 +150,65 @@ const CelestialTopBar = ({
     const monitoredState = useSelector((state) => state.celestialMonitored);
     const celestialLoading = useSelector((state) => state.celestial?.tracksLoading);
     const {
-        monitored,
+        monitored = [],
         addDialogOpen,
         manageDialogOpen,
-        form,
+        form: rawForm,
         formError,
         saveLoading,
-    } = monitoredState;
+    } = monitoredState || {};
+    const form = {
+        targetType: String(rawForm?.targetType || 'mission'),
+        displayName: String(rawForm?.displayName || ''),
+        command: String(rawForm?.command || ''),
+        bodyId: String(rawForm?.bodyId || ''),
+    };
 
     const [editDialogOpen, setEditDialogOpen] = useState(false);
     const [editError, setEditError] = useState('');
     const [editForm, setEditForm] = useState({
         id: '',
+        targetType: 'mission',
         displayName: '',
         command: '',
+        bodyId: '',
         color: '',
         enabled: true,
     });
     const [catalogLoading, setCatalogLoading] = useState(false);
     const [catalogError, setCatalogError] = useState('');
     const [catalogEntries, setCatalogEntries] = useState([]);
+    const [bodyCatalogLoading, setBodyCatalogLoading] = useState(false);
+    const [bodyCatalogError, setBodyCatalogError] = useState('');
+    const [bodyCatalogEntries, setBodyCatalogEntries] = useState([]);
     const [selectedCatalogEntry, setSelectedCatalogEntry] = useState(null);
     const [targetInputValue, setTargetInputValue] = useState('');
     const [addFeedback, setAddFeedback] = useState('');
+    const safeSelectedCatalogEntry =
+        selectedCatalogEntry && typeof selectedCatalogEntry === 'object' ? selectedCatalogEntry : null;
+    const safeTargetInputValue = String(targetInputValue || '');
+    const safeCatalogEntries = useMemo(
+        () => (Array.isArray(catalogEntries) ? catalogEntries : [])
+            .filter((entry) => entry && typeof entry === 'object')
+            .map((entry) => ({
+                ...entry,
+                id: entry.id || entry.command || `${entry.display_name || 'target'}`,
+                display_name: entry.display_name || entry.command || 'Unknown',
+                command: entry.command || '',
+            })),
+        [catalogEntries],
+    );
+    const safeBodyCatalogEntries = useMemo(
+        () => (Array.isArray(bodyCatalogEntries) ? bodyCatalogEntries : [])
+            .filter((entry) => entry && typeof entry === 'object')
+            .map((entry) => ({
+                ...entry,
+                body_id: String(entry.body_id || '').toLowerCase(),
+                name: entry.name || entry.body_id || 'Unknown',
+            }))
+            .filter((entry) => entry.body_id),
+        [bodyCatalogEntries],
+    );
 
     const enabledCount = useMemo(
         () => monitored.filter((entry) => entry.enabled).length,
@@ -209,6 +246,22 @@ const CelestialTopBar = ({
     }, [socket]);
 
     useEffect(() => {
+        if (!socket) {
+            return;
+        }
+        let active = true;
+        socket.emit('data_request', 'get-celestial-body-catalog', null, (response) => {
+            if (!active) return;
+            if (response?.success) {
+                setBodyCatalogEntries(response.data || []);
+            }
+        });
+        return () => {
+            active = false;
+        };
+    }, [socket]);
+
+    useEffect(() => {
         if (!addDialogOpen || !socket) {
             return;
         }
@@ -235,6 +288,32 @@ const CelestialTopBar = ({
     }, [addDialogOpen, socket]);
 
     useEffect(() => {
+        if (!addDialogOpen || !socket) {
+            return;
+        }
+
+        let active = true;
+        setBodyCatalogLoading(true);
+        setBodyCatalogError('');
+        socket.emit('data_request', 'get-celestial-body-catalog', null, (response) => {
+            if (!active) {
+                return;
+            }
+            if (response?.success) {
+                setBodyCatalogEntries(response.data || []);
+            } else {
+                setBodyCatalogEntries([]);
+                setBodyCatalogError(response?.error || 'Failed to load celestial body catalog.');
+            }
+            setBodyCatalogLoading(false);
+        });
+
+        return () => {
+            active = false;
+        };
+    }, [addDialogOpen, socket]);
+
+    useEffect(() => {
         if (addDialogOpen) {
             setAddFeedback('');
             setTargetInputValue(form.command || '');
@@ -243,34 +322,49 @@ const CelestialTopBar = ({
         setSelectedCatalogEntry(null);
         setTargetInputValue('');
         setCatalogError('');
+        setBodyCatalogError('');
         setAddFeedback('');
     }, [addDialogOpen, form.command]);
 
     const inferredSourceMode = useMemo(() => {
+        if (form.targetType === 'body') {
+            return 'static-body';
+        }
         const command = String(form.command || '').trim().toLowerCase();
         const catalogCommand = String(selectedCatalogEntry?.command || '').trim().toLowerCase();
         if (selectedCatalogEntry && command && command === catalogCommand) {
             return 'catalog';
         }
         return 'exact';
-    }, [form.command, selectedCatalogEntry]);
+    }, [form.command, form.targetType, selectedCatalogEntry]);
 
     const catalogByCommand = useMemo(() => {
         const map = {};
-        (catalogEntries || []).forEach((entry) => {
+        safeCatalogEntries.forEach((entry) => {
             const key = String(entry?.command || '').trim().toLowerCase();
             if (key) {
                 map[key] = entry;
             }
         });
         return map;
-    }, [catalogEntries]);
+    }, [safeCatalogEntries]);
 
     const monitoredCommands = useMemo(
         () =>
             new Set(
                 (monitored || [])
+                    .filter((entry) => (entry.targetType || 'mission') === 'mission')
                     .map((entry) => String(entry?.command || '').trim().toLowerCase())
+                    .filter(Boolean),
+            ),
+        [monitored],
+    );
+    const monitoredBodies = useMemo(
+        () =>
+            new Set(
+                (monitored || [])
+                    .filter((entry) => (entry.targetType || 'mission') === 'body')
+                    .map((entry) => String(entry?.bodyId || '').trim().toLowerCase())
                     .filter(Boolean),
             ),
         [monitored],
@@ -283,32 +377,60 @@ const CelestialTopBar = ({
             return;
         }
 
+        const targetType = form.targetType || 'mission';
         const name = form.displayName.trim();
         const cmd = form.command.trim();
-        if (!name || !cmd) {
-            dispatch(setMonitoredFormError('Display name and command are required.'));
-            return;
-        }
+        const bodyId = String(form.bodyId || '').trim().toLowerCase();
 
-        const exists = monitored.some((entry) => entry.command.toLowerCase() === cmd.toLowerCase());
-        if (exists) {
-            dispatch(setMonitoredFormError('This command is already in the monitored list.'));
-            return;
+        if (targetType === 'mission') {
+            if (!name || !cmd) {
+                dispatch(setMonitoredFormError('Display name and command are required.'));
+                return;
+            }
+            const exists = monitored.some(
+                (entry) =>
+                    (entry.targetType || 'mission') === 'mission'
+                    && String(entry.command || '').toLowerCase() === cmd.toLowerCase(),
+            );
+            if (exists) {
+                dispatch(setMonitoredFormError('This command is already in the monitored list.'));
+                return;
+            }
+        } else {
+            if (!bodyId) {
+                dispatch(setMonitoredFormError('Select a body target.'));
+                return;
+            }
+            const exists = monitored.some(
+                (entry) =>
+                    (entry.targetType || 'mission') === 'body'
+                    && String(entry.bodyId || '').toLowerCase() === bodyId,
+            );
+            if (exists) {
+                dispatch(setMonitoredFormError('This body is already in the monitored list.'));
+                return;
+            }
         }
 
         const result = await dispatch(
             createMonitoredCelestial({
                 socket,
                 entry: {
+                    targetType,
                     displayName: name,
-                    command: cmd,
+                    command: targetType === 'mission' ? cmd : '',
+                    bodyId: targetType === 'body' ? bodyId : '',
                     enabled: true,
                     sourceMode: inferredSourceMode,
                 },
             }),
         );
         if (result.meta.requestStatus === 'fulfilled') {
-            setAddFeedback(`Added "${name}" using command "${cmd}".`);
+            setAddFeedback(
+                targetType === 'mission'
+                    ? `Added "${name}" using command "${cmd}".`
+                    : `Added body target "${name}".`,
+            );
             setSelectedCatalogEntry(null);
         }
     };
@@ -341,8 +463,10 @@ const CelestialTopBar = ({
     const handleOpenEdit = (entry) => {
         setEditForm({
             id: entry.id,
+            targetType: entry.targetType || 'mission',
             displayName: entry.displayName,
             command: entry.command,
+            bodyId: entry.bodyId || '',
             color: entry.color || '',
             enabled: entry.enabled,
         });
@@ -358,9 +482,19 @@ const CelestialTopBar = ({
 
         const name = editForm.displayName.trim();
         const cmd = editForm.command.trim();
+        const bodyId = String(editForm.bodyId || '').trim().toLowerCase();
+        const targetType = editForm.targetType || 'mission';
         const normalizedColor = normalizeHexColor(editForm.color);
-        if (!name || !cmd) {
-            setEditError('Display name and command are required.');
+        if (!name) {
+            setEditError('Display name is required.');
+            return;
+        }
+        if (targetType === 'mission' && !cmd) {
+            setEditError('Command is required for mission targets.');
+            return;
+        }
+        if (targetType === 'body' && !bodyId) {
+            setEditError('Body target is required for body targets.');
             return;
         }
         if (normalizedColor && !HEX_COLOR_PATTERN.test(normalizedColor)) {
@@ -369,10 +503,17 @@ const CelestialTopBar = ({
         }
 
         const exists = monitored.some(
-            (entry) => entry.id !== editForm.id && entry.command.toLowerCase() === cmd.toLowerCase(),
+            (entry) => {
+                if (entry.id === editForm.id) return false;
+                if ((entry.targetType || 'mission') !== targetType) return false;
+                if (targetType === 'body') {
+                    return String(entry.bodyId || '').toLowerCase() === bodyId;
+                }
+                return String(entry.command || '').toLowerCase() === cmd.toLowerCase();
+            },
         );
         if (exists) {
-            setEditError('This command is already in the monitored list.');
+            setEditError(targetType === 'mission' ? 'This command is already in the monitored list.' : 'This body is already in the monitored list.');
             return;
         }
 
@@ -381,8 +522,10 @@ const CelestialTopBar = ({
                 socket,
                 entry: {
                     id: editForm.id,
+                    targetType,
                     displayName: name,
-                    command: cmd,
+                    command: targetType === 'mission' ? cmd : '',
+                    bodyId: targetType === 'body' ? bodyId : '',
                     color: normalizedColor || null,
                     enabled: editForm.enabled,
                 },
@@ -508,121 +651,211 @@ const CelestialTopBar = ({
                 <DialogTitle sx={DIALOG_TITLE_SX}>Add Monitored Celestial Target</DialogTitle>
                 <DialogContent sx={DIALOG_CONTENT_SX}>
                     <Stack spacing={2} sx={{ pt: 3 }}>
-                        <Box>
-                            <Autocomplete
-                                freeSolo
-                                options={catalogEntries}
-                                loading={catalogLoading}
-                            value={selectedCatalogEntry}
-                            inputValue={targetInputValue}
-                            isOptionEqualToValue={(option, value) => option?.id === value?.id}
-                            getOptionDisabled={(option) =>
-                                monitoredCommands.has(String(option?.command || '').trim().toLowerCase())
-                            }
-                            getOptionLabel={(option) => {
-                                if (typeof option === 'string') {
-                                    return option;
-                                }
-                                return option?.display_name || option?.command || '';
-                                }}
-                                onInputChange={(event, value, reason) => {
-                                    setTargetInputValue(value);
-                                    if (reason === 'clear') {
-                                        setSelectedCatalogEntry(null);
-                                        dispatch(setMonitoredFormField({ field: 'displayName', value: '' }));
-                                        dispatch(setMonitoredFormField({ field: 'command', value: '' }));
-                                        dispatch(setMonitoredFormError(''));
-                                        setAddFeedback('');
-                                        return;
-                                    }
-                                    if (reason === 'input') {
-                                        const typed = String(value || '');
-                                        setSelectedCatalogEntry(null);
-                                        dispatch(setMonitoredFormField({ field: 'displayName', value: typed }));
-                                        dispatch(setMonitoredFormField({ field: 'command', value: typed }));
-                                        dispatch(setMonitoredFormError(''));
-                                        setAddFeedback('');
-                                    }
-                                }}
-                                onChange={(event, value) => {
+                        <FormControl size="small" fullWidth>
+                            <InputLabel id="add-target-type-label">Target Type</InputLabel>
+                            <Select
+                                labelId="add-target-type-label"
+                                label="Target Type"
+                                value={form.targetType || 'mission'}
+                                onChange={(event) => {
+                                    const nextType = event.target.value;
+                                    dispatch(setMonitoredFormField({ field: 'targetType', value: nextType }));
+                                    dispatch(setMonitoredFormField({ field: 'displayName', value: '' }));
+                                    dispatch(setMonitoredFormField({ field: 'command', value: '' }));
+                                    dispatch(setMonitoredFormField({ field: 'bodyId', value: '' }));
+                                    setSelectedCatalogEntry(null);
+                                    setTargetInputValue('');
                                     setAddFeedback('');
                                     dispatch(setMonitoredFormError(''));
-
-                                    if (!value) {
-                                        setSelectedCatalogEntry(null);
-                                        return;
-                                    }
-
-                                    if (typeof value === 'string') {
-                                        setSelectedCatalogEntry(null);
-                                        setTargetInputValue(value);
-                                        dispatch(setMonitoredFormField({ field: 'displayName', value }));
-                                        dispatch(setMonitoredFormField({ field: 'command', value }));
-                                        return;
-                                    }
-
-                                    setSelectedCatalogEntry(value);
-                                    setTargetInputValue(value.display_name || value.command || '');
-                                    dispatch(setMonitoredFormField({ field: 'displayName', value: value.display_name || '' }));
-                                    dispatch(setMonitoredFormField({ field: 'command', value: value.command || '' }));
                                 }}
-                                renderOption={(props, option) => (
-                                    <Box component="li" {...props} key={option.id}>
-                                        <Stack spacing={0.35} sx={{ width: '100%' }}>
-                                            <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
-                                                <Typography variant="body2">{option.display_name}</Typography>
-                                                <Stack direction="row" spacing={0.75} alignItems="center">
-                                                    {monitoredCommands.has(String(option?.command || '').trim().toLowerCase()) ? (
-                                                        <Chip
-                                                            size="small"
-                                                            variant="outlined"
-                                                            color="default"
-                                                            label="Already monitored"
-                                                        />
-                                                    ) : null}
-                                                    <Chip
-                                                        size="small"
-                                                        variant="outlined"
-                                                        color={getMissionStatusMeta(option.mission_status, option.status_label).color}
-                                                        label={getMissionStatusMeta(option.mission_status, option.status_label).label}
-                                                    />
-                                                </Stack>
-                                            </Stack>
-                                            <Typography
-                                                variant="caption"
-                                                color="text.secondary"
-                                                sx={{ fontFamily: 'monospace' }}
-                                            >
-                                                {option.command}{option.agency ? ` · ${option.agency}` : ''}
-                                            </Typography>
-                                        </Stack>
-                                    </Box>
-                                )}
-                                renderInput={(params) => (
-                                    <TextField
-                                        {...params}
-                                        label="Target"
-                                        placeholder="Type command or pick from catalog"
-                                        size="small"
-                                        helperText={
-                                            inferredSourceMode === 'catalog'
-                                                ? 'Using static catalog entry.'
-                                                : 'Using exact Horizons command.'
+                            >
+                                <MenuItem value="mission">Mission / Spacecraft</MenuItem>
+                                <MenuItem value="body">Planet / Moon</MenuItem>
+                            </Select>
+                        </FormControl>
+
+                        {(form.targetType || 'mission') === 'mission' ? (
+                            <>
+                                <Box>
+                                    <Autocomplete
+                                        freeSolo
+                                        options={safeCatalogEntries}
+                                        loading={catalogLoading}
+                                        value={safeSelectedCatalogEntry}
+                                        inputValue={safeTargetInputValue}
+                                        isOptionEqualToValue={(option, value) =>
+                                            String(option?.id || option?.command || '') === String(value?.id || value?.command || '')
                                         }
+                                        getOptionDisabled={(option) =>
+                                            monitoredCommands.has(String(option?.command || '').trim().toLowerCase())
+                                        }
+                                        getOptionLabel={(option) => {
+                                            if (typeof option === 'string') {
+                                                return option;
+                                            }
+                                            return option?.display_name || option?.command || '';
+                                        }}
+                                        onInputChange={(event, value, reason) => {
+                                            setTargetInputValue(value);
+                                            if (reason === 'clear') {
+                                                setSelectedCatalogEntry(null);
+                                                dispatch(setMonitoredFormField({ field: 'displayName', value: '' }));
+                                                dispatch(setMonitoredFormField({ field: 'command', value: '' }));
+                                                dispatch(setMonitoredFormError(''));
+                                                setAddFeedback('');
+                                                return;
+                                            }
+                                            if (reason === 'input') {
+                                                const typed = String(value || '');
+                                                setSelectedCatalogEntry(null);
+                                                dispatch(setMonitoredFormField({ field: 'displayName', value: typed }));
+                                                dispatch(setMonitoredFormField({ field: 'command', value: typed }));
+                                                dispatch(setMonitoredFormError(''));
+                                                setAddFeedback('');
+                                            }
+                                        }}
+                                        onChange={(event, value) => {
+                                            setAddFeedback('');
+                                            dispatch(setMonitoredFormError(''));
+
+                                            if (!value) {
+                                                setSelectedCatalogEntry(null);
+                                                return;
+                                            }
+
+                                            if (typeof value === 'string') {
+                                                setSelectedCatalogEntry(null);
+                                                setTargetInputValue(value);
+                                                dispatch(setMonitoredFormField({ field: 'displayName', value }));
+                                                dispatch(setMonitoredFormField({ field: 'command', value }));
+                                                return;
+                                            }
+
+                                            setSelectedCatalogEntry(value);
+                                            setTargetInputValue(value.display_name || value.command || '');
+                                            dispatch(setMonitoredFormField({ field: 'displayName', value: value.display_name || '' }));
+                                            dispatch(setMonitoredFormField({ field: 'command', value: value.command || '' }));
+                                        }}
+                                        renderOption={(props, option) => (
+                                            <Box component="li" {...props} key={option?.id || option?.command || 'target'}>
+                                                <Stack spacing={0.35} sx={{ width: '100%' }}>
+                                                    <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+                                                        <Typography variant="body2">{option?.display_name || option?.command || 'Unknown'}</Typography>
+                                                        <Stack direction="row" spacing={0.75} alignItems="center">
+                                                            {monitoredCommands.has(String(option?.command || '').trim().toLowerCase()) ? (
+                                                                <Chip
+                                                                    size="small"
+                                                                    variant="outlined"
+                                                                    color="default"
+                                                                    label="Already monitored"
+                                                                />
+                                                            ) : null}
+                                                            <Chip
+                                                                size="small"
+                                                                variant="outlined"
+                                                                color={getMissionStatusMeta(option?.mission_status, option?.status_label).color}
+                                                                label={getMissionStatusMeta(option?.mission_status, option?.status_label).label}
+                                                            />
+                                                        </Stack>
+                                                    </Stack>
+                                                    <Typography
+                                                        variant="caption"
+                                                        color="text.secondary"
+                                                        sx={{ fontFamily: 'monospace' }}
+                                                    >
+                                                        {option?.command}{option?.agency ? ` · ${option.agency}` : ''}
+                                                    </Typography>
+                                                </Stack>
+                                            </Box>
+                                        )}
+                                        renderInput={(params) => (
+                                            <TextField
+                                                {...params}
+                                                label="Target"
+                                                placeholder="Type command or pick from catalog"
+                                                size="small"
+                                                helperText={
+                                                    inferredSourceMode === 'catalog'
+                                                        ? 'Using static catalog entry.'
+                                                        : 'Using exact Horizons command.'
+                                                }
+                                            />
+                                        )}
                                     />
-                                )}
-                            />
-                        </Box>
-                        {selectedCatalogEntry && String(selectedCatalogEntry?.mission_status || '').toLowerCase() !== 'active' ? (
-                            <Typography variant="caption" color="warning.main">
-                                Selected mission is not active; Horizons data may be limited.
-                            </Typography>
-                        ) : null}
-                        {catalogLoading ? (
-                            <Typography variant="caption" color="text.secondary">
-                                Loading spacecraft catalog...
-                            </Typography>
-                        ) : null}
+                                </Box>
+                                {selectedCatalogEntry && String(selectedCatalogEntry?.mission_status || '').toLowerCase() !== 'active' ? (
+                                    <Typography variant="caption" color="warning.main">
+                                        Selected mission is not active; Horizons data may be limited.
+                                    </Typography>
+                                ) : null}
+                                {catalogLoading ? (
+                                    <Typography variant="caption" color="text.secondary">
+                                        Loading spacecraft catalog...
+                                    </Typography>
+                                ) : null}
+                                <TextField
+                                    label="Horizons Command"
+                                    value={form.command}
+                                    onChange={(event) =>
+                                        {
+                                            const nextValue = event.target.value;
+                                            dispatch(setMonitoredFormField({ field: 'command', value: nextValue }));
+                                            if (!form.displayName || form.displayName === form.command) {
+                                                dispatch(setMonitoredFormField({ field: 'displayName', value: nextValue }));
+                                            }
+                                            setSelectedCatalogEntry(null);
+                                            setTargetInputValue(nextValue);
+                                        }
+                                    }
+                                    fullWidth
+                                    size="small"
+                                />
+                            </>
+                        ) : (
+                            <>
+                                <FormControl size="small" fullWidth sx={{ mt: 0.5 }}>
+                                    <InputLabel id="body-target-label">Target Body</InputLabel>
+                                    <Select
+                                        labelId="body-target-label"
+                                        label="Target Body"
+                                        value={form.bodyId || ''}
+                                        onChange={(event) => {
+                                            const bodyId = String(event.target.value || '').toLowerCase();
+                                            const selectedBody = safeBodyCatalogEntries.find(
+                                                (entry) => String(entry?.body_id || '').toLowerCase() === bodyId,
+                                            );
+                                            dispatch(setMonitoredFormField({ field: 'bodyId', value: bodyId }));
+                                            dispatch(setMonitoredFormField({ field: 'displayName', value: selectedBody?.name || bodyId }));
+                                            dispatch(setMonitoredFormError(''));
+                                            setAddFeedback('');
+                                        }}
+                                    >
+                                        {safeBodyCatalogEntries.map((entry) => {
+                                            const value = String(entry?.body_id || '').toLowerCase();
+                                            const isDisabled = monitoredBodies.has(value);
+                                            return (
+                                                <MenuItem key={value} value={value} disabled={isDisabled}>
+                                                    {entry?.name || value}
+                                                    {entry?.body_type ? ` (${entry.body_type})` : ''}
+                                                    {entry?.parent_body_id ? ` · ${entry.parent_body_id}` : ''}
+                                                </MenuItem>
+                                            );
+                                        })}
+                                    </Select>
+                                </FormControl>
+                                {bodyCatalogLoading ? (
+                                    <Typography variant="caption" color="text.secondary">
+                                        Loading body catalog...
+                                    </Typography>
+                                ) : null}
+                                {bodyCatalogError ? (
+                                    <Typography variant="body2" color="error">
+                                        {bodyCatalogError}
+                                    </Typography>
+                                ) : null}
+                            </>
+                        )}
+
                         <TextField
                             label="Display Name"
                             value={form.displayName}
@@ -632,24 +865,7 @@ const CelestialTopBar = ({
                             fullWidth
                             size="small"
                         />
-                        <TextField
-                            label="Horizons Command"
-                            value={form.command}
-                            onChange={(event) =>
-                                {
-                                    const nextValue = event.target.value;
-                                    dispatch(setMonitoredFormField({ field: 'command', value: nextValue }));
-                                    if (!form.displayName || form.displayName === form.command) {
-                                        dispatch(setMonitoredFormField({ field: 'displayName', value: nextValue }));
-                                    }
-                                    setSelectedCatalogEntry(null);
-                                    setTargetInputValue(nextValue);
-                                }
-                            }
-                            fullWidth
-                            size="small"
-                        />
-                        {catalogError ? (
+                        {(form.targetType || 'mission') === 'mission' && catalogError ? (
                             <Typography variant="body2" color="error">
                                 {catalogError}
                             </Typography>
@@ -701,7 +917,8 @@ const CelestialTopBar = ({
                             <TableHead>
                                 <TableRow>
                                     <TableCell sx={{ fontWeight: 700, bgcolor: 'background.paper' }}>Display Name</TableCell>
-                                    <TableCell sx={{ fontWeight: 700, bgcolor: 'background.paper' }}>Horizons Command</TableCell>
+                                    <TableCell sx={{ fontWeight: 700, bgcolor: 'background.paper' }}>Type</TableCell>
+                                    <TableCell sx={{ fontWeight: 700, bgcolor: 'background.paper' }}>Target ID</TableCell>
                                     <TableCell sx={{ fontWeight: 700, bgcolor: 'background.paper' }}>Mission</TableCell>
                                     <TableCell sx={{ fontWeight: 700, bgcolor: 'background.paper' }}>Status</TableCell>
                                     <TableCell sx={{ fontWeight: 700, bgcolor: 'background.paper' }}>Last Refresh</TableCell>
@@ -712,7 +929,10 @@ const CelestialTopBar = ({
                                 {monitored.length ? (
                                     monitored.map((entry) => {
                                         const statusMeta = getStatusMeta(entry);
-                                        const mission = catalogByCommand[String(entry.command || '').toLowerCase()] || null;
+                                        const targetType = entry.targetType || 'mission';
+                                        const mission = targetType === 'mission'
+                                            ? (catalogByCommand[String(entry.command || '').toLowerCase()] || null)
+                                            : null;
                                         const missionStatusMeta = getMissionStatusMeta(
                                             mission?.mission_status,
                                             mission?.status_label,
@@ -727,16 +947,23 @@ const CelestialTopBar = ({
                                             >
                                                 <TableCell>{entry.displayName}</TableCell>
                                                 <TableCell>
+                                                    <Chip
+                                                        size="small"
+                                                        variant="outlined"
+                                                        label={targetType === 'body' ? 'Body' : 'Mission'}
+                                                    />
+                                                </TableCell>
+                                                <TableCell>
                                                     <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>
-                                                        {entry.command}
+                                                        {targetType === 'body' ? entry.bodyId : entry.command}
                                                     </Typography>
                                                 </TableCell>
                                                 <TableCell>
                                                     <Chip
                                                         size="small"
                                                         variant="outlined"
-                                                        color={missionStatusMeta.color}
-                                                        label={missionStatusMeta.label}
+                                                        color={targetType === 'body' ? 'info' : missionStatusMeta.color}
+                                                        label={targetType === 'body' ? 'Static Body' : missionStatusMeta.label}
                                                     />
                                                 </TableCell>
                                                 <TableCell>
@@ -802,7 +1029,7 @@ const CelestialTopBar = ({
                                     })
                                 ) : (
                                     <TableRow>
-                                        <TableCell colSpan={6} sx={{ py: 4 }}>
+                                        <TableCell colSpan={7} sx={{ py: 4 }}>
                                             <Typography variant="body2" color="text.secondary" textAlign="center">
                                                 No monitored celestial targets yet.
                                             </Typography>
@@ -854,6 +1081,25 @@ const CelestialTopBar = ({
                 <DialogTitle sx={DIALOG_TITLE_SX}>Edit Monitored Celestial Target</DialogTitle>
                 <DialogContent sx={DIALOG_CONTENT_SX}>
                     <Stack spacing={2} sx={{ pt: 3 }}>
+                        <FormControl size="small" fullWidth>
+                            <InputLabel id="edit-target-type-label">Target Type</InputLabel>
+                            <Select
+                                labelId="edit-target-type-label"
+                                label="Target Type"
+                                value={editForm.targetType || 'mission'}
+                                onChange={(event) =>
+                                    setEditForm((prev) => ({
+                                        ...prev,
+                                        targetType: event.target.value,
+                                        command: event.target.value === 'mission' ? prev.command : '',
+                                        bodyId: event.target.value === 'body' ? prev.bodyId : '',
+                                    }))
+                                }
+                            >
+                                <MenuItem value="mission">Mission / Spacecraft</MenuItem>
+                                <MenuItem value="body">Planet / Moon</MenuItem>
+                            </Select>
+                        </FormControl>
                         <TextField
                             label="Display Name"
                             value={editForm.displayName}
@@ -863,15 +1109,48 @@ const CelestialTopBar = ({
                             fullWidth
                             size="small"
                         />
-                        <TextField
-                            label="Horizons Command"
-                            value={editForm.command}
-                            onChange={(event) =>
-                                setEditForm((prev) => ({ ...prev, command: event.target.value }))
-                            }
-                            fullWidth
-                            size="small"
-                        />
+                        {(editForm.targetType || 'mission') === 'mission' ? (
+                            <TextField
+                                label="Horizons Command"
+                                value={editForm.command}
+                                onChange={(event) =>
+                                    setEditForm((prev) => ({ ...prev, command: event.target.value }))
+                                }
+                                fullWidth
+                                size="small"
+                            />
+                        ) : (
+                            <FormControl size="small" fullWidth>
+                                <InputLabel id="edit-body-target-label">Target Body</InputLabel>
+                                <Select
+                                    labelId="edit-body-target-label"
+                                    label="Target Body"
+                                    value={editForm.bodyId || ''}
+                                    onChange={(event) => {
+                                        const bodyId = String(event.target.value || '').toLowerCase();
+                                        const selectedBody = safeBodyCatalogEntries.find(
+                                            (entry) => String(entry?.body_id || '').toLowerCase() === bodyId,
+                                        );
+                                        setEditForm((prev) => ({
+                                            ...prev,
+                                            bodyId,
+                                            displayName: prev.displayName || selectedBody?.name || bodyId,
+                                        }));
+                                    }}
+                                >
+                                    {safeBodyCatalogEntries.map((entry) => {
+                                        const value = String(entry?.body_id || '').toLowerCase();
+                                        return (
+                                            <MenuItem key={value} value={value}>
+                                                {entry?.name || value}
+                                                {entry?.body_type ? ` (${entry.body_type})` : ''}
+                                                {entry?.parent_body_id ? ` · ${entry.parent_body_id}` : ''}
+                                            </MenuItem>
+                                        );
+                                    })}
+                                </Select>
+                            </FormControl>
+                        )}
                         <Stack direction="row" spacing={1.5} alignItems="center">
                             <TextField
                                 label="Color"

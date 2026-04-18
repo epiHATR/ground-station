@@ -24,11 +24,13 @@ import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import { useDispatch, useSelector } from 'react-redux';
 import {
+    setSelectedMonitoredIds,
     setMonitoredTableColumnVisibility,
     setMonitoredTablePageSize,
     setMonitoredTableSortModel,
     setOpenGridSettingsDialog,
 } from './monitored-slice.jsx';
+import { toRowSelectionModel, toSelectedIds } from '../../utils/datagrid-selection.js';
 
 const AU_IN_KM = 149597870.7;
 const SECONDS_PER_DAY = 86400;
@@ -168,6 +170,16 @@ const computeProjectionSpan = (orbitSampling) => {
     return `${past}h / ${future}h @ ${step}m`;
 };
 
+const buildTargetKey = (entry) => {
+    const type = String(entry?.targetType || entry?.target_type || 'mission').toLowerCase();
+    if (type === 'body') {
+        const bodyId = String(entry?.bodyId || entry?.body_id || entry?.command || '').toLowerCase();
+        return bodyId ? `body:${bodyId}` : '';
+    }
+    const command = String(entry?.command || '').trim();
+    return command ? `mission:${command}` : '';
+};
+
 const getVisibilityState = (visible, elevationDeg) => {
     if (typeof visible === 'boolean') {
         return visible ? 'visible' : 'below';
@@ -190,6 +202,7 @@ const SettingsDialog = ({ open, onClose }) => {
 
     const columns = [
         { name: 'displayName', label: 'Name', category: 'identity', alwaysVisible: true },
+        { name: 'targetType', label: 'Type', category: 'identity' },
         { name: 'color', label: 'Color', category: 'identity' },
         { name: 'command', label: 'Horizons Command', category: 'identity', alwaysVisible: true },
         { name: 'source', label: 'Source', category: 'identity' },
@@ -287,10 +300,11 @@ const SettingsDialog = ({ open, onClose }) => {
     );
 };
 
-const MonitoredCelestialGridIsland = ({ rows = [], loading = false }) => {
+const MonitoredCelestialGridIsland = ({ rows = [], loading = false, onRowDoubleClick = null }) => {
     const dispatch = useDispatch();
     const tracks = useSelector((state) => state.celestial?.celestialTracks?.celestial || []);
     const {
+        selectedIds,
         tableColumnVisibility,
         tablePageSize,
         tableSortModel,
@@ -298,16 +312,26 @@ const MonitoredCelestialGridIsland = ({ rows = [], loading = false }) => {
     } = useSelector((state) => state.celestialMonitored);
     const [nowMs, setNowMs] = useState(() => Date.now());
     const [page, setPage] = useState(0);
+    const rowSelectionModel = useMemo(() => toRowSelectionModel(selectedIds), [selectedIds]);
 
     useEffect(() => {
         const interval = setInterval(() => setNowMs(Date.now()), 30000);
         return () => clearInterval(interval);
     }, []);
 
-    const trackByCommand = useMemo(() => {
+    const trackByTargetKey = useMemo(() => {
         const entries = Array.isArray(tracks) ? tracks : [];
         return entries.reduce((acc, track) => {
-            const key = String(track?.command || '').toLowerCase();
+            const key = String(track?.target_key || '').trim()
+                || (() => {
+                    const type = String(track?.target_type || 'mission').toLowerCase();
+                    if (type === 'body') {
+                        const bodyId = String(track?.body_id || track?.command || '').toLowerCase();
+                        return bodyId ? `body:${bodyId}` : '';
+                    }
+                    const command = String(track?.command || '').trim();
+                    return command ? `mission:${command}` : '';
+                })();
             if (key) acc[key] = track;
             return acc;
         }, {});
@@ -316,7 +340,9 @@ const MonitoredCelestialGridIsland = ({ rows = [], loading = false }) => {
     const enrichedRows = useMemo(
         () =>
             (rows || []).map((row) => {
-                const track = trackByCommand[String(row.command || '').toLowerCase()] || {};
+                const targetKey = buildTargetKey(row);
+                const track = trackByTargetKey[targetKey] || {};
+                const targetType = String(row.targetType || row.target_type || 'mission').toLowerCase();
                 const distanceAu = magnitude3(track.position_xyz_au);
                 const speedAuPerDay = magnitude3(track.velocity_xyz_au_per_day);
                 const speedKmS = Number.isFinite(speedAuPerDay) ? speedAuPerDay * AU_PER_DAY_TO_KM_PER_S : NaN;
@@ -327,9 +353,11 @@ const MonitoredCelestialGridIsland = ({ rows = [], loading = false }) => {
                 const visibility = getVisibilityState(track?.visibility?.visible, elevationDeg);
                 return {
                     ...row,
+                    targetType,
+                    targetKey,
                     color: row.color || track.color || null,
                     source: track.source || '-',
-                    sourceMode: row.sourceMode || row.source_mode || '-',
+                    sourceMode: row.sourceMode || row.source_mode || (targetType === 'body' ? 'static-body' : '-'),
                     visibility,
                     elevationDeg,
                     azimuthDeg,
@@ -343,7 +371,7 @@ const MonitoredCelestialGridIsland = ({ rows = [], loading = false }) => {
                     sampleCount,
                 };
             }),
-        [rows, trackByCommand, nowMs],
+        [rows, trackByTargetKey, nowMs],
     );
 
     const columns = useMemo(
@@ -395,6 +423,12 @@ const MonitoredCelestialGridIsland = ({ rows = [], loading = false }) => {
             },
             { field: 'displayName', headerName: 'Name', minWidth: 170, flex: 1 },
             {
+                field: 'targetType',
+                headerName: 'Type',
+                minWidth: 95,
+                valueGetter: (value) => (String(value || '').toLowerCase() === 'body' ? 'Body' : 'Mission'),
+            },
+            {
                 field: 'color',
                 headerName: 'Color',
                 minWidth: 90,
@@ -422,7 +456,14 @@ const MonitoredCelestialGridIsland = ({ rows = [], loading = false }) => {
                     );
                 },
             },
-            { field: 'command', headerName: 'Horizons Command', minWidth: 170, flex: 1 },
+            {
+                field: 'command',
+                headerName: 'Target ID',
+                minWidth: 170,
+                flex: 1,
+                valueGetter: (value, row) =>
+                    String(row?.targetType || '').toLowerCase() === 'body' ? (row?.bodyId || value) : value,
+            },
             { field: 'source', headerName: 'Source', minWidth: 110, flex: 0.7 },
             { field: 'sourceMode', headerName: 'Source Mode', minWidth: 120, flex: 0.8 },
             {
@@ -497,6 +538,18 @@ const MonitoredCelestialGridIsland = ({ rows = [], loading = false }) => {
                     columns={columns}
                     getRowId={(row) => row.id}
                     loading={loading}
+                    disableMultipleRowSelection
+                    disableRowSelectionOnClick={false}
+                    rowSelectionModel={rowSelectionModel}
+                    onRowSelectionModelChange={(nextSelection) => {
+                        const selected = toSelectedIds(nextSelection);
+                        dispatch(setSelectedMonitoredIds(selected.length ? [selected[0]] : []));
+                    }}
+                    onRowDoubleClick={(params) => {
+                        if (onRowDoubleClick) {
+                            onRowDoubleClick(params?.row || null);
+                        }
+                    }}
                     density="compact"
                     columnVisibilityModel={tableColumnVisibility}
                     onColumnVisibilityModelChange={(model) => dispatch(setMonitoredTableColumnVisibility(model))}

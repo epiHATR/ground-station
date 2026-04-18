@@ -123,6 +123,18 @@ const hasFiniteXY = (position) =>
     && Number.isFinite(Number(position[0]))
     && Number.isFinite(Number(position[1]));
 
+const resolveTargetKey = (body) => {
+    const explicit = String(body?.target_key || '').trim();
+    if (explicit) return explicit;
+    const type = String(body?.target_type || 'mission').toLowerCase();
+    if (type === 'body') {
+        const bodyId = String(body?.body_id || body?.command || '').toLowerCase();
+        return bodyId ? `body:${bodyId}` : '';
+    }
+    const command = String(body?.command || '').trim();
+    return command ? `mission:${command}` : '';
+};
+
 const drawArrowHead = (ctx, fromX, fromY, toX, toY, color) => {
     const dx = toX - fromX;
     const dy = toY - fromY;
@@ -187,7 +199,10 @@ const drawTextOnArc = (ctx, text, cx, cy, radius, centerAngle, style = {}) => {
 
 const SolarSystemCanvas = ({
     scene,
+    selectedTargetKeys = [],
     fitAllSignal = 0,
+    focusTargetSignal = 0,
+    focusTargetKey = '',
     zoomInSignal = 0,
     zoomOutSignal = 0,
     resetZoomSignal = 0,
@@ -200,6 +215,7 @@ const SolarSystemCanvas = ({
     const canvasRef = useRef(null);
     const wheelCommitTimeoutRef = useRef(null);
     const lastFitSignalRef = useRef(fitAllSignal);
+    const lastFocusTargetSignalRef = useRef(focusTargetSignal);
     const lastZoomInSignalRef = useRef(zoomInSignal);
     const lastZoomOutSignalRef = useRef(zoomOutSignal);
     const lastResetZoomSignalRef = useRef(resetZoomSignal);
@@ -223,6 +239,11 @@ const SolarSystemCanvas = ({
 
     const planets = scene?.planets || [];
     const tracked = scene?.celestial || [];
+    const selectedTargetKeySet = useMemo(
+        () => new Set((selectedTargetKeys || []).map((value) => String(value || '').trim()).filter(Boolean)),
+        [selectedTargetKeys],
+    );
+    const hasTrackedSelection = selectedTargetKeySet.size > 0;
     const asteroidZones = scene?.asteroid_zones || [];
     const asteroidResonanceGaps = scene?.asteroid_resonance_gaps || [];
     const effectiveDisplayOptions = {
@@ -302,6 +323,61 @@ const SolarSystemCanvas = ({
         setViewport(nextViewport);
         commitViewport(nextViewport);
     }, [planets, tracked, commitViewport]);
+
+    const fitTarget = useCallback((targetKey) => {
+        const key = String(targetKey || '').trim();
+        if (!key) return;
+        const container = containerRef.current;
+        if (!container) return;
+        const rect = container.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
+
+        const selectedBody = tracked.find((body) => resolveTargetKey(body) === key);
+        if (!selectedBody) return;
+
+        const points = [];
+        if (hasFiniteXYZ(selectedBody.position_xyz_au)) {
+            points.push(selectedBody.position_xyz_au);
+        }
+        const samples = Array.isArray(selectedBody.orbit_samples_xyz_au)
+            ? selectedBody.orbit_samples_xyz_au
+            : [];
+        samples.forEach((sample) => {
+            if (hasFiniteXY(sample)) points.push(sample);
+        });
+        if (!points.length) return;
+
+        let minX = Infinity;
+        let maxX = -Infinity;
+        let minY = Infinity;
+        let maxY = -Infinity;
+        points.forEach((point) => {
+            const x = Number(point[0] || 0);
+            const y = Number(point[1] || 0);
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+        });
+
+        const spanX = Math.max(0.02, maxX - minX);
+        const spanY = Math.max(0.02, maxY - minY);
+        const padding = 0.78;
+        const zoomX = (rect.width * padding) / spanX;
+        const zoomY = (rect.height * padding) / spanY;
+        const nextZoom = clamp(Math.min(zoomX, zoomY), MIN_ZOOM, MAX_ZOOM);
+
+        const worldCenterX = (minX + maxX) / 2;
+        const worldCenterY = (minY + maxY) / 2;
+        const nextViewport = {
+            zoom: nextZoom,
+            panX: -worldCenterX * nextZoom,
+            panY: worldCenterY * nextZoom,
+        };
+        viewportRef.current = nextViewport;
+        setViewport(nextViewport);
+        commitViewport(nextViewport);
+    }, [tracked, commitViewport]);
 
     const applyZoomAtScreenPoint = useCallback((zoomFactor, anchorX, anchorY) => {
         const container = containerRef.current;
@@ -505,9 +581,16 @@ const SolarSystemCanvas = ({
             if (!hasFiniteXYZ(body.position_xyz_au)) return;
             const samples = body.orbit_samples_xyz_au || [];
             if (!samples.length || !effectiveDisplayOptions.showTrackedOrbits) return;
+            const targetKey = resolveTargetKey(body);
+            const isSelected = hasTrackedSelection && selectedTargetKeySet.has(targetKey);
+            const isDimmed = hasTrackedSelection && !isSelected;
 
             const trackedHexColor = resolveTrackedColor(body, body.stale ? '#EF476F' : '#06D6A0');
-            const trackedStrokeColor = hexToRgba(trackedHexColor, body.stale ? 0.35 : 0.45);
+            const trackedStrokeColor = isSelected
+                ? hexToRgba(trackedHexColor, 0.95)
+                : isDimmed
+                    ? hexToRgba(trackedHexColor, 0.16)
+                    : hexToRgba(trackedHexColor, body.stale ? 0.35 : 0.45);
             ctx.beginPath();
             samples.forEach((sample, index) => {
                 const [sx, sy] = toScreen(sample);
@@ -515,7 +598,7 @@ const SolarSystemCanvas = ({
                 else ctx.lineTo(sx, sy);
             });
             ctx.strokeStyle = trackedStrokeColor;
-            ctx.lineWidth = 1;
+            ctx.lineWidth = isSelected ? 2.2 : 1;
             ctx.setLineDash([3, 4]);
             ctx.stroke();
             ctx.setLineDash([]);
@@ -548,13 +631,26 @@ const SolarSystemCanvas = ({
             tracked.forEach((body) => {
                 if (!hasFiniteXYZ(body.position_xyz_au)) return;
                 const [sx, sy] = toScreen(body.position_xyz_au);
+                const targetKey = resolveTargetKey(body);
+                const isSelected = hasTrackedSelection && selectedTargetKeySet.has(targetKey);
+                const isDimmed = hasTrackedSelection && !isSelected;
                 const trackedHexColor = resolveTrackedColor(body, body.stale ? '#EF476F' : '#06D6A0');
 
-                ctx.fillStyle = trackedHexColor;
-                ctx.fillRect(sx - 3, sy - 3, 6, 6);
+                ctx.fillStyle = isDimmed ? hexToRgba(trackedHexColor, 0.28) : trackedHexColor;
+                const markerSize = isSelected ? 8 : 6;
+                ctx.fillRect(sx - markerSize / 2, sy - markerSize / 2, markerSize, markerSize);
+                if (isSelected) {
+                    ctx.strokeStyle = hexToRgba('#ffffff', theme.palette.mode === 'dark' ? 0.9 : 0.75);
+                    ctx.lineWidth = 1.25;
+                    ctx.strokeRect(sx - markerSize / 2 - 1, sy - markerSize / 2 - 1, markerSize + 2, markerSize + 2);
+                }
 
                 if (effectiveDisplayOptions.showTrackedLabels) {
-                    ctx.fillStyle = theme.palette.text.secondary;
+                    ctx.fillStyle = isSelected
+                        ? theme.palette.text.primary
+                        : isDimmed
+                            ? hexToRgba(theme.palette.text.secondary, 0.45)
+                            : theme.palette.text.secondary;
                     ctx.fillText(body.name || body.command || 'object', sx + 8, sy + 4);
                 }
             });
@@ -565,8 +661,11 @@ const SolarSystemCanvas = ({
         displayOptions,
         planets,
         tracked,
+        selectedTargetKeySet,
+        hasTrackedSelection,
         theme.palette.background.default,
         theme.palette.mode,
+        theme.palette.text.primary,
         theme.palette.text.secondary,
         viewport.panX,
         viewport.panY,
@@ -586,6 +685,12 @@ const SolarSystemCanvas = ({
         lastFitSignalRef.current = fitAllSignal;
         fitAll();
     }, [fitAllSignal, fitAll]);
+
+    useEffect(() => {
+        if (focusTargetSignal === lastFocusTargetSignalRef.current) return;
+        lastFocusTargetSignalRef.current = focusTargetSignal;
+        fitTarget(focusTargetKey);
+    }, [focusTargetSignal, focusTargetKey, fitTarget]);
 
     useEffect(() => {
         if (zoomInSignal === lastZoomInSignalRef.current) return;

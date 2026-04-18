@@ -162,7 +162,7 @@ const celestialSlice = createSlice({
         upsertCelestialTrackRowLive: (state, action) => {
             const payload = action.payload || {};
             const row = payload.row || null;
-            if (!row || !row.command) return;
+            if (!row) return;
 
             const nextTracks = state.celestialTracks ? { ...state.celestialTracks } : {
                 timestamp_utc: payload.timestamp_utc || new Date().toISOString(),
@@ -174,9 +174,31 @@ const celestialSlice = createSlice({
             };
 
             const existingRows = Array.isArray(nextTracks.celestial) ? [...nextTracks.celestial] : [];
-            const targetCommand = String(row.command || '').toLowerCase();
+            const targetKey = String(row.target_key || '').trim()
+                || (() => {
+                    const type = String(row.target_type || 'mission').toLowerCase();
+                    if (type === 'body') {
+                        const bodyId = String(row.body_id || row.command || '').toLowerCase();
+                        return bodyId ? `body:${bodyId}` : '';
+                    }
+                    const command = String(row.command || '').trim();
+                    return command ? `mission:${command}` : '';
+                })();
+            if (!targetKey) return;
             const existingIndex = existingRows.findIndex(
-                (item) => String(item?.command || '').toLowerCase() === targetCommand,
+                (item) => {
+                    const existingKey = String(item?.target_key || '').trim()
+                        || (() => {
+                            const type = String(item?.target_type || 'mission').toLowerCase();
+                            if (type === 'body') {
+                                const bodyId = String(item?.body_id || item?.command || '').toLowerCase();
+                                return bodyId ? `body:${bodyId}` : '';
+                            }
+                            const command = String(item?.command || '').trim();
+                            return command ? `mission:${command}` : '';
+                        })();
+                    return existingKey === targetKey;
+                },
             );
 
             if (existingIndex >= 0) {

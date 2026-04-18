@@ -32,7 +32,7 @@ import {
     setCelestialMapSettings,
 } from './celestial-slice.jsx';
 import { fetchMonitoredCelestial } from './monitored-slice.jsx';
-import { setOpenGridSettingsDialog } from './monitored-slice.jsx';
+import { setOpenGridSettingsDialog, setSelectedMonitoredIds } from './monitored-slice.jsx';
 import CelestialToolbar from './celestial-toolbar.jsx';
 import CelestialStatusBar from './celestial-statusbar.jsx';
 import SolarSystemCanvas from './solarsystem-canvas.jsx';
@@ -175,6 +175,8 @@ const CelestialMainLayout = () => {
         return ensureRequiredLayoutItems(normalizeLayoutsResizeHandles(loaded ?? defaultLayouts));
     });
     const [fitAllSignal, setFitAllSignal] = useState(0);
+    const [focusTargetSignal, setFocusTargetSignal] = useState(0);
+    const [focusTargetKey, setFocusTargetKey] = useState('');
     const [zoomInSignal, setZoomInSignal] = useState(0);
     const [zoomOutSignal, setZoomOutSignal] = useState(0);
     const [resetZoomSignal, setResetZoomSignal] = useState(0);
@@ -276,6 +278,22 @@ const CelestialMainLayout = () => {
         : inferredCounts.moons;
     const trackedCount = combinedScene?.celestial?.length || 0;
     const hasSolarScene = (planetsCount + moonsCount) > 0;
+    const selectedTargetKeys = React.useMemo(() => {
+        const rows = monitoredState?.monitored || [];
+        const selectedId = (monitoredState?.selectedIds || [])[0];
+        const selectedRow = rows.find((row) => row.id === selectedId);
+        if (!selectedRow) return [];
+
+        const explicitKey = String(selectedRow?.targetKey || '').trim();
+        if (explicitKey) return [explicitKey];
+        const type = String(selectedRow?.targetType || 'mission').toLowerCase();
+        if (type === 'body') {
+            const bodyId = String(selectedRow?.bodyId || selectedRow?.command || '').toLowerCase();
+            return bodyId ? [`body:${bodyId}`] : [];
+        }
+        const command = String(selectedRow?.command || '').trim();
+        return command ? [`mission:${command}`] : [];
+    }, [monitoredState?.monitored, monitoredState?.selectedIds]);
     const tracksProgress = celestialState?.tracksProgress || null;
     const tracksProgressText = React.useMemo(() => {
         if (!celestialState?.tracksLoading) return '';
@@ -345,7 +363,10 @@ const CelestialMainLayout = () => {
                         <Box sx={{ height: '100%', minHeight: 220 }}>
                             <SolarSystemCanvas
                                 scene={combinedScene}
+                                selectedTargetKeys={selectedTargetKeys}
                                 fitAllSignal={fitAllSignal}
+                                focusTargetSignal={focusTargetSignal}
+                                focusTargetKey={focusTargetKey}
                                 zoomInSignal={zoomInSignal}
                                 zoomOutSignal={zoomOutSignal}
                                 resetZoomSignal={resetZoomSignal}
@@ -386,6 +407,18 @@ const CelestialMainLayout = () => {
                     <MonitoredCelestialGridIsland
                         rows={monitoredState.monitored || []}
                         loading={Boolean(monitoredState.loading)}
+                        onRowDoubleClick={(row) => {
+                            if (!row?.id) return;
+                            dispatch(setSelectedMonitoredIds([row.id]));
+                            const type = String(row?.targetType || row?.target_type || 'mission').toLowerCase();
+                            const key = String(row?.targetKey || '').trim()
+                                || (type === 'body'
+                                    ? `body:${String(row?.bodyId || row?.command || '').toLowerCase()}`
+                                    : `mission:${String(row?.command || '').trim()}`);
+                            if (!key) return;
+                            setFocusTargetKey(key);
+                            setFocusTargetSignal((value) => value + 1);
+                        }}
                     />
                 </Box>
             </Box>

@@ -43,6 +43,20 @@ _computed_cache: Dict[str, CacheEntry] = {}
 _computed_cache_lock = threading.Lock()
 
 
+def _target_key_from_parts(
+    target_type: str,
+    *,
+    command: Optional[str] = None,
+    body_id: Optional[str] = None,
+) -> str:
+    normalized_type = str(target_type or "mission").strip().lower()
+    if normalized_type == "body":
+        normalized_body = str(body_id or "").strip().lower()
+        return f"body:{normalized_body}" if normalized_body else ""
+    normalized_command = str(command or "").strip()
+    return f"mission:{normalized_command}" if normalized_command else ""
+
+
 def _parse_epoch(data: Optional[Dict[str, Any]]) -> datetime:
     if not data:
         return datetime.now(timezone.utc)
@@ -77,16 +91,61 @@ def _normalize_targets(data: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if isinstance(item, str):
             command = item.strip()
             if command:
-                normalized.append({"command": command, "name": command})
+                normalized.append(
+                    {
+                        "target_type": "mission",
+                        "target_key": _target_key_from_parts("mission", command=command),
+                        "command": command,
+                        "name": command,
+                    }
+                )
             continue
 
         if isinstance(item, dict):
+            color = item.get("color")
+            target_type = (
+                str(item.get("target_type") or item.get("targetType") or "mission").strip().lower()
+            )
+
+            if target_type == "body":
+                body_id = (
+                    str(
+                        item.get("body_id")
+                        or item.get("bodyId")
+                        or item.get("id")
+                        or item.get("target")
+                        or ""
+                    )
+                    .strip()
+                    .lower()
+                )
+                if not body_id:
+                    continue
+                name = str(item.get("name") or body_id).strip()
+                normalized.append(
+                    {
+                        "target_type": "body",
+                        "target_key": _target_key_from_parts("body", body_id=body_id),
+                        "body_id": body_id,
+                        "name": name,
+                        "color": color,
+                    }
+                )
+                continue
+
             command = str(item.get("command") or item.get("id") or item.get("target") or "").strip()
             if not command:
                 continue
             name = str(item.get("name") or command).strip()
-            color = item.get("color")
-            normalized.append({"command": command, "name": name, "color": color})
+            normalized.append(
+                {
+                    "target_type": "mission",
+                    "target_key": _target_key_from_parts("mission", command=command),
+                    "command": command,
+                    "name": name,
+                    "color": color,
+                }
+            )
 
     return normalized
 
@@ -383,6 +442,7 @@ async def _fetch_celestial_with_cache(
     step_minutes: int,
     observer_location: Optional[Dict[str, Any]],
     earth_position_xyz_au: Optional[List[float]],
+    body_snapshot_by_id: Dict[str, Dict[str, Any]],
     force_refresh: bool,
     logger,
     per_row_callback: Optional[Any] = None,
@@ -392,9 +452,65 @@ async def _fetch_celestial_with_cache(
     total_targets = len(targets)
 
     for index, target in enumerate(targets):
-        command = target["command"]
+        target_type = str(target.get("target_type") or "mission").strip().lower()
+        target_key = str(target.get("target_key") or "").strip()
         name = target["name"]
         color = target.get("color")
+
+        if target_type == "body":
+            body_id = str(target.get("body_id") or "").strip().lower()
+            body_row = body_snapshot_by_id.get(body_id)
+            if body_row:
+                body_payload = dict(body_row)
+                body_payload["target_type"] = "body"
+                body_payload["target_key"] = target_key or _target_key_from_parts(
+                    "body", body_id=body_id
+                )
+                body_payload["body_id"] = body_id
+                body_payload["command"] = body_id
+                body_payload["name"] = name or body_payload.get("name") or body_id
+                body_payload["color"] = color
+                body_payload["source"] = "offline-solar-system"
+                body_payload["stale"] = False
+                body_payload["cache"] = "offline"
+                _attach_observer_view_local(
+                    row=body_payload,
+                    epoch=epoch,
+                    observer_location=observer_location,
+                    earth_position_xyz_au=earth_position_xyz_au,
+                    logger=logger,
+                )
+                rows.append(body_payload)
+                if per_row_callback:
+                    await per_row_callback(dict(body_payload), index + 1, total_targets)
+                continue
+
+            body_error = {
+                "target_type": "body",
+                "target_key": target_key or _target_key_from_parts("body", body_id=body_id),
+                "body_id": body_id,
+                "command": body_id,
+                "name": name,
+                "color": color,
+                "source": "offline-solar-system",
+                "stale": True,
+                "cache": "offline-miss",
+                "error": f"Body '{body_id}' not present in offline snapshot",
+                "sky_position": None,
+                "visibility": {
+                    "above_horizon": None,
+                    "visible": None,
+                    "horizon_threshold_deg": 0.0,
+                },
+            }
+            rows.append(body_error)
+            if per_row_callback:
+                await per_row_callback(dict(body_error), index + 1, total_targets)
+            continue
+
+        command = str(target.get("command") or "").strip()
+        if not command:
+            continue
         observer_cache_key = "no-observer"
         if observer_location:
             observer_cache_key = (
@@ -404,7 +520,10 @@ async def _fetch_celestial_with_cache(
                 f"|{observer_location.get('alt_m')}"
             )
         epoch_cache_key = _bucket_epoch(epoch, COMPUTED_EPOCH_BUCKET_SECONDS).isoformat()
-        cache_key = f"{command}|{epoch_cache_key}|p{past_hours}|f{future_hours}|s{step_minutes}|obs:{observer_cache_key}"
+        cache_key = (
+            f"mission:{command}|{epoch_cache_key}|p{past_hours}|f{future_hours}|s{step_minutes}"
+            f"|obs:{observer_cache_key}"
+        )
 
         use_cached = False
         cached_entry: Optional[CacheEntry] = None
@@ -420,11 +539,17 @@ async def _fetch_celestial_with_cache(
 
         if use_cached and cached_entry:
             cached_payload = dict(cached_entry.payload)
+            cached_payload["target_type"] = "mission"
+            cached_payload["target_key"] = target_key or _target_key_from_parts(
+                "mission", command=command
+            )
             cached_payload["name"] = name
             cached_payload["color"] = color
             cached_payload["stale"] = False
             cached_payload["cache"] = "computed-hit"
             rows.append(cached_payload)
+            if per_row_callback:
+                await per_row_callback(dict(cached_payload), index + 1, total_targets)
             continue
 
         snapshot = await _get_vectors_snapshot(
@@ -440,6 +565,10 @@ async def _fetch_celestial_with_cache(
         payload = snapshot.get("payload")
         if isinstance(payload, dict):
             row_payload = dict(payload)
+            row_payload["target_type"] = "mission"
+            row_payload["target_key"] = target_key or _target_key_from_parts(
+                "mission", command=command
+            )
             row_payload["name"] = name
             row_payload["color"] = color
             row_payload["stale"] = bool(snapshot.get("stale"))
@@ -464,6 +593,8 @@ async def _fetch_celestial_with_cache(
             continue
 
         error_row = {
+            "target_type": "mission",
+            "target_key": target_key or _target_key_from_parts("mission", command=command),
             "name": name,
             "command": command,
             "color": color,
@@ -499,6 +630,9 @@ async def build_celestial_scene(
 
     solar_meta, planets = compute_solar_system_snapshot(epoch)
     earth_position_xyz_au = _extract_earth_position_xyz_au(planets)
+    body_snapshot_by_id = {
+        str(body.get("id") or "").strip().lower(): dict(body) for body in planets if body.get("id")
+    }
     asteroid_zones, asteroid_resonance_gaps, asteroid_meta = get_static_asteroid_zones()
     celestial = await _fetch_celestial_with_cache(
         targets,
@@ -508,6 +642,7 @@ async def build_celestial_scene(
         step_minutes,
         observer_location,
         earth_position_xyz_au,
+        body_snapshot_by_id,
         force_refresh,
         logger,
         per_row_callback,
@@ -594,6 +729,9 @@ async def build_celestial_tracks(
     observer_location = await _load_observer_location()
     _, planets = compute_solar_system_snapshot(epoch)
     earth_position_xyz_au = _extract_earth_position_xyz_au(planets)
+    body_snapshot_by_id = {
+        str(body.get("id") or "").strip().lower(): dict(body) for body in planets if body.get("id")
+    }
     celestial = await _fetch_celestial_with_cache(
         targets,
         epoch,
@@ -602,6 +740,7 @@ async def build_celestial_tracks(
         step_minutes,
         observer_location,
         earth_position_xyz_au,
+        body_snapshot_by_id,
         force_refresh,
         logger,
         per_row_callback,

@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, cast
 
 import crud.locations as crud_locations
 import crud.monitoredcelestial as crud_monitored
+from celestial.bodycatalog import get_celestial_body, list_celestial_bodies
 from celestial.horizons import fetch_celestial_vectors
 from celestial.scene import build_celestial_scene, build_celestial_tracks, build_solar_system_scene
 from celestial.spacecraftindex import get_spacecraft_index, search_spacecraft_index
@@ -40,14 +41,38 @@ def _find_static_spacecraft_match(query: str) -> Optional[Dict[str, Any]]:
 
 
 async def _validate_monitored_target_payload(data: Dict[str, Any]) -> Dict[str, Any]:
-    command = str(data.get("command") or "").strip()
+    target_type = (
+        str(data.get("target_type") or data.get("targetType") or "mission").strip().lower()
+    )
     display_name = str(data.get("display_name") or data.get("displayName") or "").strip()
+
+    if target_type not in {"mission", "body"}:
+        return {"success": False, "error": "target_type must be either 'mission' or 'body'"}
+
+    if target_type == "body":
+        body_id = str(data.get("body_id") or data.get("bodyId") or "").strip().lower()
+        if not body_id:
+            return {"success": False, "error": "body_id is required for body targets"}
+        body = get_celestial_body(body_id)
+        if not body:
+            return {"success": False, "error": f"Unknown body_id '{body_id}'"}
+        return {
+            "success": True,
+            "data": {
+                "target_type": "body",
+                "body_id": body_id,
+                "command": None,
+                "display_name": display_name or str(body.get("name") or body_id),
+            },
+        }
+
+    command = str(data.get("command") or "").strip()
     source_mode = (
         str(data.get("source_mode") or data.get("sourceMode") or "catalog").strip().lower()
     )
 
     if not command:
-        return {"success": False, "error": "Horizons command is required"}
+        return {"success": False, "error": "Horizons command is required for mission targets"}
     if not display_name:
         return {"success": False, "error": "Display name is required"}
 
@@ -64,8 +89,10 @@ async def _validate_monitored_target_payload(data: Dict[str, Any]) -> Dict[str, 
         return {
             "success": True,
             "data": {
+                "target_type": "mission",
                 "display_name": display_name,
                 "command": command,
+                "body_id": None,
             },
         }
 
@@ -78,8 +105,10 @@ async def _validate_monitored_target_payload(data: Dict[str, Any]) -> Dict[str, 
     return {
         "success": True,
         "data": {
+            "target_type": "mission",
             "display_name": display_name or static_match.get("display_name") or command,
             "command": static_match.get("command") or command,
+            "body_id": None,
         },
     }
 
@@ -103,15 +132,33 @@ async def _build_scene_payload(data: Optional[Dict], logger: Any) -> Dict[str, A
 
     entries_obj = monitored_result.get("data")
     entries: List[Dict[str, Any]] = entries_obj if isinstance(entries_obj, list) else []
-    payload["celestial"] = [
-        {
-            "command": item.get("command"),
-            "name": item.get("display_name") or item.get("command"),
-            "color": item.get("color"),
-        }
-        for item in entries
-        if item.get("command")
-    ]
+    payload["celestial"] = []
+    for item in entries:
+        target_type = str(item.get("target_type") or "mission").strip().lower()
+        if target_type == "body":
+            body_id = str(item.get("body_id") or "").strip().lower()
+            if not body_id:
+                continue
+            payload["celestial"].append(
+                {
+                    "target_type": "body",
+                    "body_id": body_id,
+                    "name": item.get("display_name") or body_id,
+                    "color": item.get("color"),
+                }
+            )
+            continue
+
+        if not item.get("command"):
+            continue
+        payload["celestial"].append(
+            {
+                "target_type": "mission",
+                "command": item.get("command"),
+                "name": item.get("display_name") or item.get("command"),
+                "color": item.get("color"),
+            }
+        )
 
     return payload
 
@@ -253,15 +300,33 @@ async def refresh_monitored_celestial_now(
         else:
             targets = [entry for entry in monitored_entries if entry.get("enabled")]
 
-        payload["celestial"] = [
-            {
-                "command": item.get("command"),
-                "name": item.get("display_name") or item.get("command"),
-                "color": item.get("color"),
-            }
-            for item in targets
-            if item.get("command")
-        ]
+        payload["celestial"] = []
+        for item in targets:
+            target_type = str(item.get("target_type") or "mission").strip().lower()
+            if target_type == "body":
+                body_id = str(item.get("body_id") or "").strip().lower()
+                if not body_id:
+                    continue
+                payload["celestial"].append(
+                    {
+                        "target_type": "body",
+                        "body_id": body_id,
+                        "name": item.get("display_name") or body_id,
+                        "color": item.get("color"),
+                    }
+                )
+                continue
+            command = str(item.get("command") or "").strip()
+            if not command:
+                continue
+            payload["celestial"].append(
+                {
+                    "target_type": "mission",
+                    "command": command,
+                    "name": item.get("display_name") or command,
+                    "color": item.get("color"),
+                }
+            )
 
         logger.info(
             f"Force refreshing monitored celestial targets, count={len(payload['celestial'])}, selected={bool(selected_ids)}"
@@ -289,12 +354,19 @@ async def refresh_monitored_celestial_now(
         scene_rows: List[Dict[str, Any]] = (
             scene_rows_obj if isinstance(scene_rows_obj, list) else []
         )
-        by_command = {str(row.get("command")): row for row in scene_rows if row.get("command")}
+        by_target_key = {
+            str(row.get("target_key")): row for row in scene_rows if row.get("target_key")
+        }
 
         updates = []
         for target in targets:
-            command = str(target.get("command") or "")
-            row = by_command.get(command)
+            target_type = str(target.get("target_type") or "mission").strip().lower()
+            target_key = (
+                f"body:{str(target.get('body_id') or '').strip().lower()}"
+                if target_type == "body"
+                else f"mission:{str(target.get('command') or '').strip()}"
+            )
+            row = by_target_key.get(target_key)
             error = row.get("error") if isinstance(row, dict) else "No data returned"
             updates.append(
                 {
@@ -350,8 +422,10 @@ async def create_monitored_celestial(
 
     normalized = validation.get("data") or {}
     payload = dict(data)
+    payload["target_type"] = normalized.get("target_type")
     payload["display_name"] = normalized.get("display_name")
     payload["command"] = normalized.get("command")
+    payload["body_id"] = normalized.get("body_id")
 
     async with AsyncSessionLocal() as dbsession:
         result = await crud_monitored.add_monitored_celestial(dbsession, payload)
@@ -378,8 +452,10 @@ async def update_monitored_celestial(
 
     normalized = validation.get("data") or {}
     payload = dict(data)
+    payload["target_type"] = normalized.get("target_type")
     payload["display_name"] = normalized.get("display_name")
     payload["command"] = normalized.get("command")
+    payload["body_id"] = normalized.get("body_id")
 
     async with AsyncSessionLocal() as dbsession:
         result = await crud_monitored.edit_monitored_celestial(dbsession, payload)
@@ -481,6 +557,17 @@ async def search_spacecraft_index_entries(
         return {"success": False, "error": str(exc), "data": []}
 
 
+async def get_celestial_body_catalog(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Any]:
+    """Return static celestial body catalog entries."""
+    try:
+        return {"success": True, "data": list_celestial_bodies(), "error": None}
+    except Exception as exc:
+        logger.error(f"Failed loading celestial body catalog: {exc}")
+        return {"success": False, "error": str(exc), "data": []}
+
+
 def register_handlers(registry):
     """Register celestial handlers with command registry."""
     registry.register_batch(
@@ -495,6 +582,7 @@ def register_handlers(registry):
             ),
             "get-monitored-celestial": (get_monitored_celestial, "data_request"),
             "get-spacecraft-index": (get_spacecraft_index_entries, "data_request"),
+            "get-celestial-body-catalog": (get_celestial_body_catalog, "data_request"),
             "search-spacecraft-index": (
                 search_spacecraft_index_entries,
                 "data_request",
