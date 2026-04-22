@@ -124,8 +124,18 @@ const ObservationsTable = () => {
     const openSettingsDialog = useSelector((state) => state.scheduler?.openObservationsTableSettingsDialog || false);
     const openDataDialog = useSelector((state) => state.scheduler?.openObservationDataDialog || false);
     const selectedObservationForData = useSelector((state) => state.scheduler?.selectedObservationForData || null);
+    const trackerInstances = useSelector((state) => state.trackerInstances?.instances || []);
     const { timezone, locale } = useUserTimeSettings();
     const rowSelectionModel = useMemo(() => toRowSelectionModel(selectedIds), [selectedIds]);
+    const targetNumberByTrackerId = useMemo(() => {
+        const mapping = {};
+        trackerInstances.forEach((instance, index) => {
+            const trackerId = instance?.tracker_id;
+            if (!trackerId) return;
+            mapping[String(trackerId)] = Number(instance?.target_number || (index + 1));
+        });
+        return mapping;
+    }, [trackerInstances]);
 
     // Filter observations based on status filters
     const observations = allObservations.filter(obs => statusFilters[obs.status]);
@@ -370,6 +380,40 @@ const ObservationsTable = () => {
                                 {formatSdr(sdr)}
                             </Typography>
                         ))}
+                    </Stack>
+                );
+            },
+        },
+        {
+            field: 'tracker_assignment',
+            headerName: 'Target / Rotator',
+            minWidth: 190,
+            flex: 1.2,
+            sortable: false,
+            filterable: false,
+            renderCell: (params) => {
+                const rotator = params.row?.rotator || {};
+                const trackerId = rotator?.tracker_id || '';
+                const targetNumber = trackerId ? targetNumberByTrackerId[String(trackerId)] : null;
+                const targetLabel = targetNumber ? `Target ${targetNumber}` : 'Unassigned';
+                const rotatorLabel = rotator?.tracking_enabled ? 'Tracking ON' : 'Tracking OFF';
+                return (
+                    <Stack
+                        direction="row"
+                        spacing={0.8}
+                        alignItems="center"
+                        sx={{ py: 0.5, width: '100%', whiteSpace: 'nowrap', overflow: 'hidden' }}
+                    >
+                        <Chip
+                            size="small"
+                            color={targetNumber ? 'info' : 'default'}
+                            variant={targetNumber ? 'filled' : 'outlined'}
+                            label={targetLabel}
+                            sx={{ flexShrink: 0 }}
+                        />
+                        <Typography variant="caption" color="text.secondary" noWrap>
+                            {`${rotatorLabel}${trackerId ? ` • ${String(trackerId).slice(0, 8)}` : ''}`}
+                        </Typography>
                     </Stack>
                 );
             },

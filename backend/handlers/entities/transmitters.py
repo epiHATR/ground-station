@@ -19,7 +19,7 @@ from typing import Any, Dict, Optional, Union
 
 import crud
 from db import AsyncSessionLocal
-from tracker.runner import get_tracker_manager
+from tracker.runner import get_all_tracker_managers
 
 
 async def submit_transmitter(
@@ -53,8 +53,8 @@ async def submit_transmitter(
             dbsession, norad_cat_id
         )
         if norad_cat_id:
-            manager = get_tracker_manager()
-            await manager.notify_transmitters_changed(norad_cat_id)
+            for manager in get_all_tracker_managers().values():
+                await manager.notify_transmitters_changed(norad_cat_id)
         return {
             "success": (transmitters["success"] & add_reply["success"]),
             "data": transmitters.get("data", []),
@@ -93,8 +93,8 @@ async def edit_transmitter(
             dbsession, norad_cat_id
         )
         if norad_cat_id:
-            manager = get_tracker_manager()
-            await manager.notify_transmitters_changed(norad_cat_id)
+            for manager in get_all_tracker_managers().values():
+                await manager.notify_transmitters_changed(norad_cat_id)
         return {
             "success": (transmitters["success"] & edit_reply["success"]),
             "data": transmitters.get("data", []),
@@ -125,8 +125,8 @@ async def delete_transmitter(
             dbsession, norad_cat_id
         )
         if norad_cat_id:
-            manager = get_tracker_manager()
-            await manager.notify_transmitters_changed(norad_cat_id)
+            for manager in get_all_tracker_managers().values():
+                await manager.notify_transmitters_changed(norad_cat_id)
         return {
             "success": (transmitters["success"] & delete_reply["success"]),
             "data": transmitters.get("data", []),

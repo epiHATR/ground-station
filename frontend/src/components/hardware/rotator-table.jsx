@@ -56,15 +56,23 @@ import {
 import Paper from "@mui/material/Paper";
 import {toRowSelectionModel, toSelectedIds} from '../../utils/datagrid-selection.js';
 import SelectionActionBar from './selection-action-bar.jsx';
+import { useLocation, useNavigate } from 'react-router-dom';
+import RotatorEditDialog from './rotator-edit-dialog.jsx';
+import {
+    DEFAULT_ROTATOR,
+    prepareRotatorPayload,
+    validateRotatorForm,
+} from './rotator-edit-logic.js';
 
 
 export default function AntennaRotatorTable() {
     const {socket} = useSocket();
     const dispatch = useDispatch();
+    const location = useLocation();
+    const navigate = useNavigate();
     const [selected, setSelected] = useState([]);
     const [pageSize, setPageSize] = useState(10);
     const [deleteConfirmText, setDeleteConfirmText] = useState('');
-    const [parkPositionEnabled, setParkPositionEnabled] = useState(false);
     const { t } = useTranslation('hardware');
     const {
         loading,
@@ -82,7 +90,28 @@ export default function AntennaRotatorTable() {
     const formatDegrees = (value) => (value === null || value === undefined || value === '' ? '' : `${value}°`);
     const formatParkDegrees = (value) =>
         (value === null || value === undefined || value === '' ? '-' : `${value}°`);
-    const isEmptyValue = (value) => value === '' || value === null || value === undefined;
+    const autoEditRotatorId = location.state?.autoEditRotatorId || null;
+
+    useEffect(() => {
+        if (!autoEditRotatorId) {
+            return;
+        }
+        const rotatorToEdit = rotators.find((rotator) => String(rotator.id) === String(autoEditRotatorId));
+        if (!rotatorToEdit) {
+            return;
+        }
+
+        dispatch(setFormValues(rotatorToEdit));
+        dispatch(setOpenAddDialog(true));
+
+        const nextState = { ...(location.state || {}) };
+        delete nextState.autoEditRotatorId;
+        if (Object.keys(nextState).length > 0) {
+            navigate(location.pathname, { replace: true, state: nextState });
+        } else {
+            navigate(location.pathname, { replace: true });
+        }
+    }, [autoEditRotatorId, dispatch, location.pathname, location.state, navigate, rotators]);
 
     const columns = [
         {field: 'name', headerName: t('rotator.name'), flex: 1, minWidth: 150},
@@ -187,28 +216,8 @@ export default function AntennaRotatorTable() {
         dispatch(setFormValues({...formValues, [name]: value}));
     };
 
-    const toOptionalNumber = (value) => {
-        if (value === '' || value === null || value === undefined) {
-            return null;
-        }
-        return Number(value);
-    };
-
-    const preparePayload = () => ({
-        ...formValues,
-        port: Number(formValues.port),
-        minaz: Number(formValues.minaz),
-        maxaz: Number(formValues.maxaz),
-        minel: Number(formValues.minel),
-        maxel: Number(formValues.maxel),
-        parkaz: toOptionalNumber(formValues.parkaz),
-        parkel: toOptionalNumber(formValues.parkel),
-        aztolerance: Number(formValues.aztolerance),
-        eltolerance: Number(formValues.eltolerance),
-    });
-
     const handleSubmit = () => {
-        dispatch(submitOrEditRotator({socket, formValues: preparePayload()}))
+        dispatch(submitOrEditRotator({socket, formValues: prepareRotatorPayload(formValues)}))
             .unwrap()
             .then(() => {
                 toast.success(t('rotator.saved_success'));
@@ -219,80 +228,8 @@ export default function AntennaRotatorTable() {
             });
     }
 
-    const validationErrors = {};
-    if (!formValues.name?.trim()) validationErrors.name = t('shared.required');
-    if (!formValues.host?.trim()) validationErrors.host = t('shared.required');
-    if (!formValues.port && formValues.port !== 0) {
-        validationErrors.port = t('shared.required');
-    } else if (Number(formValues.port) <= 0 || Number(formValues.port) > 65535) {
-        validationErrors.port = t('shared.port_range');
-    }
-    if (isEmptyValue(formValues.minaz)) {
-        validationErrors.minaz = t('shared.required');
-    } else if (Number.isNaN(Number(formValues.minaz))) {
-        validationErrors.minaz = t('shared.must_be_number');
-    }
-    if (isEmptyValue(formValues.maxaz)) {
-        validationErrors.maxaz = t('shared.required');
-    } else if (Number.isNaN(Number(formValues.maxaz))) {
-        validationErrors.maxaz = t('shared.must_be_number');
-    }
-    if (!isEmptyValue(formValues.minaz)
-        && !isEmptyValue(formValues.maxaz)
-        && Number(formValues.minaz) > Number(formValues.maxaz)) {
-        validationErrors.minaz = t('rotator.validation.min_az_lte_max_az');
-        validationErrors.maxaz = t('rotator.validation.min_az_lte_max_az');
-    }
-    if (!['0_360', '-180_180'].includes(formValues.azimuth_mode ?? '0_360')) {
-        validationErrors.azimuth_mode = t('rotator.validation.invalid_azimuth_mode');
-    }
-    if (isEmptyValue(formValues.minel)) {
-        validationErrors.minel = t('shared.required');
-    } else if (Number.isNaN(Number(formValues.minel))) {
-        validationErrors.minel = t('shared.must_be_number');
-    }
-    if (isEmptyValue(formValues.maxel)) {
-        validationErrors.maxel = t('shared.required');
-    } else if (Number.isNaN(Number(formValues.maxel))) {
-        validationErrors.maxel = t('shared.must_be_number');
-    }
-    if (!isEmptyValue(formValues.minel)
-        && !isEmptyValue(formValues.maxel)
-        && Number(formValues.minel) > Number(formValues.maxel)) {
-        validationErrors.minel = t('rotator.validation.min_el_lte_max_el');
-        validationErrors.maxel = t('rotator.validation.min_el_lte_max_el');
-    }
-    if (!isEmptyValue(formValues.parkaz) && Number.isNaN(Number(formValues.parkaz))) {
-        validationErrors.parkaz = t('shared.must_be_number');
-    }
-    if (!isEmptyValue(formValues.parkel) && Number.isNaN(Number(formValues.parkel))) {
-        validationErrors.parkel = t('shared.must_be_number');
-    }
-    if (isEmptyValue(formValues.parkaz) !== isEmptyValue(formValues.parkel)) {
-        validationErrors.parkaz = t('rotator.validation.park_both_or_none');
-        validationErrors.parkel = t('rotator.validation.park_both_or_none');
-    }
-    if (isEmptyValue(formValues.aztolerance)) {
-        validationErrors.aztolerance = t('shared.required');
-    } else if (Number.isNaN(Number(formValues.aztolerance))) {
-        validationErrors.aztolerance = t('shared.must_be_number');
-    } else if (Number(formValues.aztolerance) < 0) {
-        validationErrors.aztolerance = t('shared.must_be_gte_zero');
-    }
-    if (isEmptyValue(formValues.eltolerance)) {
-        validationErrors.eltolerance = t('shared.required');
-    } else if (Number.isNaN(Number(formValues.eltolerance))) {
-        validationErrors.eltolerance = t('shared.must_be_number');
-    } else if (Number(formValues.eltolerance) < 0) {
-        validationErrors.eltolerance = t('shared.must_be_gte_zero');
-    }
+    const validationErrors = validateRotatorForm(formValues, t);
     const hasValidationErrors = Object.keys(validationErrors).length > 0;
-
-    useEffect(() => {
-        if (!openAddDialog) return;
-        const hasParkValues = !isEmptyValue(formValues.parkaz) || !isEmptyValue(formValues.parkel);
-        setParkPositionEnabled(hasParkValues);
-    }, [openAddDialog]);
 
     const handleDelete = () => {
         dispatch(deleteRotators({socket, selectedIds: selected}))
@@ -413,265 +350,18 @@ export default function AntennaRotatorTable() {
                         }
                     />
                     <Stack direction="row" spacing={2} style={{marginTop: 15}}>
-                        <Dialog
-                            fullWidth={true}
+                        <RotatorEditDialog
                             open={openAddDialog}
                             onClose={() => dispatch(setOpenAddDialog(false))}
-                            PaperProps={{
-                                sx: {
-                                    bgcolor: 'background.paper',
-                                    border: (theme) => `1px solid ${theme.palette.divider}`,
-                                    borderRadius: 2,
-                                }
-                            }}
-                        >
-                            <DialogTitle
-                                sx={{
-                                    bgcolor: (theme) => theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100',
-                                    borderBottom: (theme) => `1px solid ${theme.palette.divider}`,
-                                    fontSize: '1.25rem',
-                                    fontWeight: 'bold',
-                                    py: 2.5,
-                                }}
-                            >
-                                {isEditing ? t('rotator.edit_dialog_title') : t('rotator.add_dialog_title')}
-                            </DialogTitle>
-                            <DialogContent sx={{ bgcolor: 'background.paper', px: 3, py: 3, pt: '1em' }}>
-                                <Stack spacing={2} sx={{ mt: 3 }}>
-                                    <TextField
-                                        name="name"
-                                        label={t('rotator.name')}
-                                        fullWidth
-                                        size="small"
-                                        onChange={handleChange}
-                                        value={formValues.name}
-                                        error={Boolean(validationErrors.name)}
-                                        required
-                                    />
-                                    <TextField
-                                        name="host"
-                                        label={t('rotator.host')}
-                                        fullWidth
-                                        size="small"
-                                        onChange={handleChange}
-                                        value={formValues.host}
-                                        error={Boolean(validationErrors.host)}
-                                        required
-                                    />
-                                    <TextField
-                                        name="port"
-                                        label={t('rotator.port')}
-                                        type="number"
-                                        fullWidth
-                                        size="small"
-                                        onChange={handleChange}
-                                        value={formValues.port}
-                                        error={Boolean(validationErrors.port)}
-                                        required
-                                    />
-                                    <TextField
-                                        name="minaz"
-                                        label={t('rotator.min_az')}
-                                        type="number"
-                                        fullWidth
-                                        size="small"
-                                        onChange={handleChange}
-                                        value={formValues.minaz}
-                                        error={Boolean(validationErrors.minaz)}
-                                        required
-                                        InputProps={{ endAdornment: <InputAdornment position="end">°</InputAdornment> }}
-                                    />
-                                    <TextField
-                                        name="maxaz"
-                                        label={t('rotator.max_az')}
-                                        type="number"
-                                        fullWidth
-                                        size="small"
-                                        onChange={handleChange}
-                                        value={formValues.maxaz}
-                                        error={Boolean(validationErrors.maxaz)}
-                                        required
-                                        InputProps={{ endAdornment: <InputAdornment position="end">°</InputAdornment> }}
-                                    />
-                                    <TextField
-                                        name="azimuth_mode"
-                                        label={t('rotator.azimuth_range')}
-                                        select
-                                        fullWidth
-                                        size="small"
-                                        onChange={handleChange}
-                                        value={formValues.azimuth_mode ?? '0_360'}
-                                        error={Boolean(validationErrors.azimuth_mode)}
-                                        helperText={
-                                            validationErrors.azimuth_mode
-                                            || (
-                                                (formValues.azimuth_mode ?? '0_360') === '-180_180'
-                                                    ? t('rotator.azimuth_mode_help_neg180_180')
-                                                    : t('rotator.azimuth_mode_help_0_360')
-                                            )
-                                        }
-                                        required
-                                    >
-                                        <MenuItem value="0_360">{t('rotator.azimuth_mode_0_360')}</MenuItem>
-                                        <MenuItem value="-180_180">{t('rotator.azimuth_mode_neg180_180')}</MenuItem>
-                                    </TextField>
-                                    <TextField
-                                        name="minel"
-                                        label={t('rotator.min_el')}
-                                        type="number"
-                                        fullWidth
-                                        size="small"
-                                        onChange={handleChange}
-                                        value={formValues.minel}
-                                        error={Boolean(validationErrors.minel)}
-                                        required
-                                        InputProps={{ endAdornment: <InputAdornment position="end">°</InputAdornment> }}
-                                    />
-                                    <TextField
-                                        name="maxel"
-                                        label={t('rotator.max_el')}
-                                        type="number"
-                                        fullWidth
-                                        size="small"
-                                        onChange={handleChange}
-                                        value={formValues.maxel}
-                                        error={Boolean(validationErrors.maxel)}
-                                        required
-                                        InputProps={{ endAdornment: <InputAdornment position="end">°</InputAdornment> }}
-                                    />
-                                    <Alert severity="warning" sx={{ mt: 0.5 }}>
-                                        {t('rotator.tolerance_warning')}
-                                    </Alert>
-                                    <TextField
-                                        name="aztolerance"
-                                        label={t('rotator.az_tolerance')}
-                                        type="number"
-                                        fullWidth
-                                        size="small"
-                                        onChange={handleChange}
-                                        value={formValues.aztolerance}
-                                        error={Boolean(validationErrors.aztolerance)}
-                                        helperText={validationErrors.aztolerance ? validationErrors.aztolerance : t('rotator.tolerance_helper')}
-                                        required
-                                        InputProps={{
-                                            endAdornment: (
-                                                <InputAdornment position="end">
-                                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                                        <WarningAmberOutlinedIcon
-                                                            fontSize="small"
-                                                            color="warning"
-                                                            sx={{ opacity: 0.7 }}
-                                                        />
-                                                        <span>°</span>
-                                                    </Box>
-                                                </InputAdornment>
-                                            )
-                                        }}
-                                    />
-                                    <TextField
-                                        name="eltolerance"
-                                        label={t('rotator.el_tolerance')}
-                                        type="number"
-                                        fullWidth
-                                        size="small"
-                                        onChange={handleChange}
-                                        value={formValues.eltolerance}
-                                        error={Boolean(validationErrors.eltolerance)}
-                                        helperText={validationErrors.eltolerance ? validationErrors.eltolerance : t('rotator.tolerance_helper')}
-                                        required
-                                        InputProps={{
-                                            endAdornment: (
-                                                <InputAdornment position="end">
-                                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                                        <WarningAmberOutlinedIcon
-                                                            fontSize="small"
-                                                            color="warning"
-                                                            sx={{ opacity: 0.7 }}
-                                                        />
-                                                        <span>°</span>
-                                                    </Box>
-                                                </InputAdornment>
-                                            )
-                                        }}
-                                    />
-                                    <Alert severity="warning" sx={{ mt: 1 }}>
-                                        {t('rotator.park_override_warning')}
-                                    </Alert>
-                                    <FormControlLabel
-                                        control={
-                                            <Checkbox
-                                                checked={parkPositionEnabled}
-                                                onChange={(event) => {
-                                                    const enabled = event.target.checked;
-                                                    setParkPositionEnabled(enabled);
-                                                    if (!enabled) {
-                                                        dispatch(setFormValues({ parkaz: null, parkel: null }));
-                                                    }
-                                                }}
-                                            />
-                                        }
-                                        label={t('rotator.enable_park_override')}
-                                    />
-                                    <TextField
-                                        name="parkaz"
-                                        label={t('rotator.park_az')}
-                                        type="number"
-                                        fullWidth
-                                        size="small"
-                                        onChange={handleChange}
-                                        value={formValues.parkaz ?? ''}
-                                        error={Boolean(validationErrors.parkaz)}
-                                        helperText={validationErrors.parkaz || t('rotator.park_position_helper')}
-                                        disabled={!parkPositionEnabled}
-                                        InputProps={{ endAdornment: <InputAdornment position="end">°</InputAdornment> }}
-                                    />
-                                    <TextField
-                                        name="parkel"
-                                        label={t('rotator.park_el')}
-                                        type="number"
-                                        fullWidth
-                                        size="small"
-                                        onChange={handleChange}
-                                        value={formValues.parkel ?? ''}
-                                        error={Boolean(validationErrors.parkel)}
-                                        helperText={validationErrors.parkel || t('rotator.park_position_helper')}
-                                        disabled={!parkPositionEnabled}
-                                        InputProps={{ endAdornment: <InputAdornment position="end">°</InputAdornment> }}
-                                    />
-                                </Stack>
-                            </DialogContent>
-                            <DialogActions
-                                sx={{
-                                    bgcolor: (theme) => theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100',
-                                    borderTop: (theme) => `1px solid ${theme.palette.divider}`,
-                                    px: 3,
-                                    py: 2.5,
-                                    gap: 2,
-                                }}
-                            >
-                                <Button
-                                    onClick={() => dispatch(setOpenAddDialog(false))}
-                                    variant="outlined"
-                                    sx={{
-                                        borderColor: (theme) => theme.palette.mode === 'dark' ? 'grey.700' : 'grey.400',
-                                        '&:hover': {
-                                            borderColor: (theme) => theme.palette.mode === 'dark' ? 'grey.600' : 'grey.500',
-                                            bgcolor: (theme) => theme.palette.mode === 'dark' ? 'grey.800' : 'grey.200',
-                                        },
-                                    }}
-                                >
-                                    {t('rotator.cancel')}
-                                </Button>
-                                <Button
-                                    color="success"
-                                    variant="contained"
-                                    onClick={handleSubmit}
-                                    disabled={hasValidationErrors || loading}
-                                >
-                                    {t('rotator.submit')}
-                                </Button>
-                            </DialogActions>
-                        </Dialog>
+                            isEditing={isEditing}
+                            formValues={formValues}
+                            validationErrors={validationErrors}
+                            hasValidationErrors={hasValidationErrors}
+                            loading={loading}
+                            onChange={handleChange}
+                            onSubmit={handleSubmit}
+                            onPatchValues={(patch) => dispatch(setFormValues(patch))}
+                        />
                         <Dialog
                             open={openDeleteConfirm}
                             onClose={() => {

@@ -52,24 +52,14 @@ def cleanup_everything():
     except Exception as e:  # pragma: no cover
         logger.warning(f"Error stopping observations: {e}")
 
-    # Terminate tracker process
+    # Terminate tracker processes
     try:
-        if tracker.runner.tracker_process and tracker.runner.tracker_process.is_alive():
-            logger.info(f"Stopping tracker process PID: {tracker.runner.tracker_process.pid}")
-
-            # Signal graceful shutdown
-            tracker.runner.tracker_stop_event.set()
-
-            # Wait up to 3 seconds for graceful exit
-            tracker.runner.tracker_process.join(timeout=3.0)
-
-            # Force kill if still alive
-            if tracker.runner.tracker_process.is_alive():
-                logger.warning("Tracker didn't exit gracefully, force killing...")
-                tracker.runner.tracker_process.kill()
-                tracker.runner.tracker_process.join()
-
-            logger.info("Tracker process stopped")
+        supervisor = tracker.runner.get_tracker_supervisor()
+        active_tracker_ids = supervisor.get_all_tracker_ids()
+        if active_tracker_ids:
+            logger.info("Stopping tracker processes: %s", ", ".join(active_tracker_ids))
+            tracker.runner.stop_all_tracker_processes(timeout=3.0)
+            logger.info("Tracker processes stopped")
     except Exception as e:  # pragma: no cover - best effort cleanup
         logger.warning(f"Error stopping tracker: {e}")
 
@@ -127,9 +117,8 @@ def signal_handler(signum, frame):
 
 
 def stop_tracker():
-    """Simple function to kill the tracker process."""
+    """Simple function to kill all tracker processes."""
     try:
-        if tracker.runner.tracker_process and tracker.runner.tracker_process.is_alive():
-            tracker.runner.tracker_process.kill()
+        tracker.runner.stop_all_tracker_processes(timeout=0.5)
     except Exception:  # pragma: no cover - best effort cleanup
         pass

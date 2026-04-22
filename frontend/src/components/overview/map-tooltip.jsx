@@ -9,6 +9,7 @@ import TrackChangesIcon from '@mui/icons-material/TrackChanges';
 import InfoIcon from '@mui/icons-material/Info';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import TargetNumberIcon from '../common/target-number-icon.jsx';
 
 // Styled tooltip specifically for tracked satellites
 const TrackedSatelliteTooltip = styled(LeafletTooltip)(({ theme }) => ({
@@ -29,6 +30,8 @@ const SatelliteMarker = ({
                              velocity,
                              isVisible = false,
                              trackingSatelliteId,
+                             trackingSatelliteIds = [],
+                             targetNumberByNorad = {},
                              selectedSatelliteId,
                              markerEventHandlers,
                              satelliteIcon,
@@ -38,15 +41,20 @@ const SatelliteMarker = ({
     const navigate = useNavigate();
     const { t } = useTranslation('overview');
 
+    const normalizedTrackingIds = Array.isArray(trackingSatelliteIds)
+        ? trackingSatelliteIds.map((id) => String(id))
+        : (trackingSatelliteId != null ? [String(trackingSatelliteId)] : []);
+    const isTracking = normalizedTrackingIds.includes(String(satellite.norad_id));
+    const targetNumber = targetNumberByNorad?.[String(satellite.norad_id)] ?? null;
+
     // Local state for the disabled property
-    const [isDisabled, setIsDisabled] = useState(trackingSatelliteId === satellite.norad_id);
+    const [isDisabled, setIsDisabled] = useState(isTracking);
 
     // Update local state whenever the dependencies change
     useEffect(() => {
-        setIsDisabled(trackingSatelliteId === satellite.norad_id);
-    }, [trackingSatelliteId, satellite.norad_id]);
+        setIsDisabled(isTracking);
+    }, [isTracking]);
 
-    const isTracking = trackingSatelliteId === satellite.norad_id;
     const isSelected = selectedSatelliteId === satellite.norad_id;
 
     // Choose which tooltip component to use
@@ -55,7 +63,10 @@ const SatelliteMarker = ({
     const handleSetTarget = (e) => {
         e.stopPropagation();
         if (handleSetTrackingOnBackend) {
-            handleSetTrackingOnBackend(satellite.norad_id);
+            handleSetTrackingOnBackend({
+                noradId: satellite.norad_id,
+                satelliteName: satellite.name,
+            });
         }
     };
 
@@ -66,7 +77,7 @@ const SatelliteMarker = ({
 
     return (
         <Marker
-            key={`marker-${satellite.norad_id}-${trackingSatelliteId === satellite}`}
+            key={`marker-${satellite.norad_id}-${isTracking ? 'tracked' : 'idle'}`}
             position={position}
             icon={satelliteIcon}
             eventHandlers={markerEventHandlers}
@@ -81,7 +92,16 @@ const SatelliteMarker = ({
             >
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
                     <strong>
-                        <span style={{}}>{isTracking && '◎ '}</span>
+                        {isTracking && (
+                            <TargetNumberIcon
+                                targetNumber={targetNumber}
+                                size={15}
+                                sx={{ mr: 0.7, verticalAlign: 'middle', position: 'relative', top: -1 }}
+                                iconColor="common.white"
+                                badgeBgColor="warning.main"
+                                badgeTextColor="common.black"
+                            />
+                        )}
                         {satellite.name} - {parseInt(altitude) + " km, " + velocity.toFixed(2) + " km/s"}
                     </strong>
                     {isSelected && !isTracking && (

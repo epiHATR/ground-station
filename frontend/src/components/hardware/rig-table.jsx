@@ -55,11 +55,16 @@ import {DataGrid, gridClasses} from "@mui/x-data-grid";
 import Paper from "@mui/material/Paper";
 import {toRowSelectionModel, toSelectedIds} from '../../utils/datagrid-selection.js';
 import SelectionActionBar from './selection-action-bar.jsx';
+import { useLocation, useNavigate } from 'react-router-dom';
+import RigEditDialog from './rig-edit-dialog.jsx';
+import { DEFAULT_RIG, validateRigForm } from './rig-edit-logic.js';
 
 
 export default function RigTable() {
     const dispatch = useDispatch();
     const {socket} = useSocket();
+    const location = useLocation();
+    const navigate = useNavigate();
     const [deleteConfirmText, setDeleteConfirmText] = React.useState('');
     const {rigs, loading, selected, openDeleteConfirm, formValues, openAddDialog} = useSelector((state) => state.rigs);
     const rowSelectionModel = React.useMemo(() => toRowSelectionModel(selected), [selected]);
@@ -68,21 +73,29 @@ export default function RigTable() {
     const { t } = useTranslation('hardware');
     const isEditing = Boolean(formValues.id);
 
-    const defaultRig = {
-        id: null,
-        name: '',
-        host: 'localhost',
-        port: 4532,
-        radiotype: 'rx',
-        radio_mode: 'duplex',
-        tx_control_mode: 'auto',
-        retune_interval_ms: 2000,
-    };
     const [pageSize, setPageSize] = React.useState(10);
-    const selectedRadioMode = formValues.radio_mode || 'duplex';
-    const radioModeHelpKey = `rig.radio_mode_help_${selectedRadioMode}`;
-    const selectedTxControlMode = formValues.tx_control_mode || 'auto';
-    const txControlModeHelpKey = `rig.tx_mode_help_${selectedTxControlMode}`;
+    const autoEditRigId = location.state?.autoEditRigId || null;
+
+    React.useEffect(() => {
+        if (!autoEditRigId) {
+            return;
+        }
+        const rigToEdit = rigs.find((rig) => String(rig.id) === String(autoEditRigId));
+        if (!rigToEdit) {
+            return;
+        }
+
+        dispatch(setFormValues(rigToEdit));
+        dispatch(setOpenAddDialog(true));
+
+        const nextState = { ...(location.state || {}) };
+        delete nextState.autoEditRigId;
+        if (Object.keys(nextState).length > 0) {
+            navigate(location.pathname, { replace: true, state: nextState });
+        } else {
+            navigate(location.pathname, { replace: true });
+        }
+    }, [autoEditRigId, dispatch, location.pathname, location.state, navigate, rigs]);
 
     const columns = [
         {field: 'name', headerName: t('rig.name'), flex: 1, minWidth: 150},
@@ -159,22 +172,7 @@ export default function RigTable() {
 
     };
 
-    const validationErrors = {};
-    if (!formValues.name?.trim()) validationErrors.name = t('shared.required');
-    if (!formValues.host?.trim()) validationErrors.host = t('shared.required');
-    if (!formValues.port && formValues.port !== 0) {
-        validationErrors.port = t('shared.required');
-    } else if (Number(formValues.port) <= 0 || Number(formValues.port) > 65535) {
-        validationErrors.port = t('shared.port_range');
-    }
-    if (!formValues.retune_interval_ms && formValues.retune_interval_ms !== 0) {
-        validationErrors.retune_interval_ms = t('shared.required');
-    } else if (
-        Number(formValues.retune_interval_ms) < 100
-        || Number(formValues.retune_interval_ms) > 60000
-    ) {
-        validationErrors.retune_interval_ms = t('rig.validation.retune_interval_range');
-    }
+    const validationErrors = validateRigForm(formValues, t);
     const hasValidationErrors = Object.keys(validationErrors).length > 0;
 
     return (
@@ -249,7 +247,7 @@ export default function RigTable() {
                                 <Button
                                     variant="contained"
                                     onClick={() => {
-                                        dispatch(setFormValues(defaultRig));
+                                        dispatch(setFormValues(DEFAULT_RIG));
                                         dispatch(setOpenAddDialog(true));
                                     }}
                                     disabled={loading}
@@ -283,148 +281,17 @@ export default function RigTable() {
                             </>
                         }
                     />
-                    <Dialog
+                    <RigEditDialog
                         open={openAddDialog}
                         onClose={() => dispatch(setOpenAddDialog(false))}
-                        fullWidth
-                        maxWidth="sm"
-                        PaperProps={{
-                            sx: {
-                                bgcolor: 'background.paper',
-                                border: (theme) => `1px solid ${theme.palette.divider}`,
-                                borderRadius: 2,
-                            }
-                        }}
-                    >
-                        <DialogTitle
-                            sx={{
-                                bgcolor: (theme) => theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100',
-                                borderBottom: (theme) => `1px solid ${theme.palette.divider}`,
-                                fontSize: '1.25rem',
-                                fontWeight: 'bold',
-                                py: 2.5,
-                            }}
-                        >
-                            {isEditing ? t('rig.edit_dialog_title') : t('rig.add_dialog_title')}
-                        </DialogTitle>
-                        <DialogContent sx={{ bgcolor: 'background.paper', px: 3, py: 3 }}>
-                            <Stack spacing={2} sx={{ mt: 3 }}>
-                                <TextField
-                                    autoFocus
-                                    name="name"
-                                    label={t('rig.name')}
-                                    type="text"
-                                    fullWidth
-                                    size="small"
-                                    value={formValues.name}
-                                    onChange={handleChange}
-                                    error={Boolean(validationErrors.name)}
-                                    required
-                                />
-                                <TextField
-                                    name="host"
-                                    label={t('rig.host')}
-                                    type="text"
-                                    fullWidth
-                                    size="small"
-                                    value={formValues.host}
-                                    onChange={handleChange}
-                                    error={Boolean(validationErrors.host)}
-                                    required
-                                />
-                                <TextField
-                                    name="port"
-                                    label={t('rig.port')}
-                                    type="number"
-                                    fullWidth
-                                    size="small"
-                                    value={formValues.port}
-                                    onChange={handleChange}
-                                    error={Boolean(validationErrors.port)}
-                                    required
-                                />
-                                <FormControl fullWidth size="small">
-                                    <InputLabel>{t('rig.radio_mode')}</InputLabel>
-                                    <Select
-                                        name="radio_mode"
-                                        label={t('rig.radio_mode')}
-                                        size="small"
-                                        value={formValues.radio_mode || 'duplex'}
-                                        onChange={handleChange}
-                                    >
-                                        <MenuItem value="monitor">{t('rig.radio_mode_monitor')}</MenuItem>
-                                        <MenuItem value="uplink_only">{t('rig.radio_mode_uplink_only')}</MenuItem>
-                                        <MenuItem value="simplex">{t('rig.radio_mode_simplex')}</MenuItem>
-                                        <MenuItem value="duplex">{t('rig.radio_mode_duplex')}</MenuItem>
-                                        <MenuItem value="ptt_guarded">{t('rig.radio_mode_ptt_guarded')}</MenuItem>
-                                    </Select>
-                                    <FormHelperText>{t(radioModeHelpKey)}</FormHelperText>
-                                </FormControl>
-                                <FormControl fullWidth size="small">
-                                    <InputLabel>{t('rig.tx_control_mode')}</InputLabel>
-                                    <Select
-                                        name="tx_control_mode"
-                                        label={t('rig.tx_control_mode')}
-                                        size="small"
-                                        value={formValues.tx_control_mode || 'auto'}
-                                        onChange={handleChange}
-                                    >
-                                        <MenuItem value="auto">{t('rig.tx_mode_auto')}</MenuItem>
-                                        <MenuItem value="vfo_switch">
-                                            {t('rig.tx_mode_vfo_switch')}
-                                        </MenuItem>
-                                        <MenuItem value="split_tx_cmd">
-                                            {t('rig.tx_mode_split_tx_cmd')}
-                                        </MenuItem>
-                                        <MenuItem value="vfo_explicit">
-                                            {t('rig.tx_mode_vfo_explicit')}
-                                        </MenuItem>
-                                    </Select>
-                                    <FormHelperText>{t(txControlModeHelpKey)}</FormHelperText>
-                                </FormControl>
-                                <Box>
-                                    <TextField
-                                        name="retune_interval_ms"
-                                        label={t('rig.retune_interval_ms')}
-                                        type="number"
-                                        fullWidth
-                                        size="small"
-                                        value={formValues.retune_interval_ms ?? 2000}
-                                        onChange={handleChange}
-                                        error={Boolean(validationErrors.retune_interval_ms)}
-                                        required
-                                    />
-                                    <FormHelperText sx={{ mt: 0.5 }}>{t('rig.retune_interval_help')}</FormHelperText>
-                                </Box>
-                            </Stack>
-                        </DialogContent>
-                        <DialogActions
-                            sx={{
-                                bgcolor: (theme) => theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100',
-                                borderTop: (theme) => `1px solid ${theme.palette.divider}`,
-                                px: 3,
-                                py: 2.5,
-                                gap: 2,
-                            }}
-                        >
-                            <Button
-                                onClick={() => dispatch(setOpenAddDialog(false))}
-                                variant="outlined"
-                                sx={{
-                                    borderColor: (theme) => theme.palette.mode === 'dark' ? 'grey.700' : 'grey.400',
-                                    '&:hover': {
-                                        borderColor: (theme) => theme.palette.mode === 'dark' ? 'grey.600' : 'grey.500',
-                                        bgcolor: (theme) => theme.palette.mode === 'dark' ? 'grey.800' : 'grey.200',
-                                    },
-                                }}
-                            >
-                                {t('rig.cancel')}
-                            </Button>
-                            <Button onClick={() => handleFormSubmit()} color="success" variant="contained" disabled={hasValidationErrors || loading}>
-                                {t('rig.submit')}
-                            </Button>
-                        </DialogActions>
-                    </Dialog>
+                        isEditing={isEditing}
+                        formValues={formValues}
+                        validationErrors={validationErrors}
+                        hasValidationErrors={hasValidationErrors}
+                        loading={loading}
+                        onChange={handleChange}
+                        onSubmit={handleFormSubmit}
+                    />
                     <Dialog
                         open={openDeleteConfirm}
                         onClose={() => {

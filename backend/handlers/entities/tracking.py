@@ -21,12 +21,28 @@ import crud
 from common.constants import RigStates, SocketEvents, TrackerCommandScopes, TrackerCommandStatus
 from db import AsyncSessionLocal
 from session.tracker import session_tracker
+from tracker.contracts import InvalidTrackerIdError, get_tracking_state_name, require_tracker_id
 from tracker.data import compiled_satellite_data, get_ui_tracker_state
-from tracker.runner import get_tracker_manager
+from tracker.instances import emit_tracker_instances
+from tracker.runner import (
+    assign_rotator_to_tracker,
+    get_assigned_rotator_for_tracker,
+    get_tracker_instances_payload,
+    get_tracker_manager,
+    restore_tracker_rotator_assignment,
+)
 from tracking.events import fetch_next_events_for_satellite
 
 
-async def emit_tracker_data(dbsession, sio, logger):
+def _tracker_id_required_response() -> Dict[str, Any]:
+    return {
+        "success": False,
+        "error": "tracker_id_required",
+        "message": "tracker_id is required",
+    }
+
+
+async def emit_tracker_data(dbsession, sio, logger, tracker_id: str):
     """
     Emits satellite tracking data to the provided Socket.IO instance. This function retrieves the
     current state of satellite tracking from the database, processes the relevant satellite data,
@@ -42,11 +58,13 @@ async def emit_tracker_data(dbsession, sio, logger):
     :return: This function does not return any value as it emits data asynchronously.
     :rtype: None
     """
+    tracker_id = require_tracker_id(tracker_id)
+    state_name = get_tracking_state_name(tracker_id)
     try:
         logger.debug("Sending tracker data to clients...")
 
         tracking_state_reply = await crud.trackingstate.get_tracking_state(
-            dbsession, name="satellite-tracking"
+            dbsession, name=state_name
         )
 
         # Check if tracking state exists (not None for first-time users)
@@ -62,17 +80,19 @@ async def emit_tracker_data(dbsession, sio, logger):
         norad_id = tracking_value.get("norad_id", None)
         satellite_data = await compiled_satellite_data(dbsession, norad_id)
         data = {
+            "tracker_id": tracker_id,
             "satellite_data": satellite_data,
             "tracking_state": tracking_value,
         }
         await sio.emit("satellite-tracking", data)
+        await sio.emit(SocketEvents.SATELLITE_TRACKING_V2, data)
 
     except Exception as e:
         logger.error(f"Error emitting tracker data: {e}")
         logger.exception(e)
 
 
-async def emit_ui_tracker_values(dbsession, sio, logger):
+async def emit_ui_tracker_values(dbsession, sio, logger, tracker_id: str):
     """
     Call this when UI tracker values are updated
 
@@ -82,11 +102,13 @@ async def emit_ui_tracker_values(dbsession, sio, logger):
     :return:
     """
 
+    tracker_id = require_tracker_id(tracker_id)
+    state_name = get_tracking_state_name(tracker_id)
     try:
         logger.debug("Sending UI tracker value to clients...")
 
         tracking_state_reply = await crud.trackingstate.get_tracking_state(
-            dbsession, name="satellite-tracking"
+            dbsession, name=state_name
         )
 
         # Check if tracking state exists (not None for first-time users)
@@ -101,9 +123,12 @@ async def emit_ui_tracker_values(dbsession, sio, logger):
 
         group_id = tracking_value.get("group_id", None)
         norad_id = tracking_value.get("norad_id", None)
-        ui_tracker_state = await get_ui_tracker_state(group_id, norad_id)
+        ui_tracker_state = await get_ui_tracker_state(group_id, norad_id, tracker_id)
         data = ui_tracker_state["data"]
+        if isinstance(data, dict):
+            data["tracker_id"] = tracker_id
         await sio.emit("ui-tracker-state", data)
+        await sio.emit(SocketEvents.UI_TRACKER_STATE_V2, data)
 
     except Exception as e:
         logger.error(f"Error emitting UI tracker values: {e}")
@@ -112,7 +137,7 @@ async def emit_ui_tracker_values(dbsession, sio, logger):
 
 async def get_tracking_state(
     sio: Any, data: Optional[Dict], logger: Any, sid: str
-) -> Dict[str, Union[bool, list]]:
+) -> Dict[str, Any]:
     """
     Get current tracking state and emit tracker data.
 
@@ -125,19 +150,24 @@ async def get_tracking_state(
     Returns:
         Dictionary with success status and tracking state
     """
+    try:
+        requested_tracker_id = require_tracker_id((data or {}).get("tracker_id"))
+    except InvalidTrackerIdError:
+        return _tracker_id_required_response()
+    state_name = get_tracking_state_name(requested_tracker_id)
     async with AsyncSessionLocal() as dbsession:
         logger.debug(f"Fetching tracking state, data: {data}")
-        tracking_state = await crud.trackingstate.get_tracking_state(
-            dbsession, name="satellite-tracking"
-        )
-        await emit_tracker_data(dbsession, sio, logger)
-        await emit_ui_tracker_values(dbsession, sio, logger)
-        return {"success": tracking_state["success"], "data": tracking_state.get("data", [])}
+        tracking_state = await crud.trackingstate.get_tracking_state(dbsession, name=state_name)
+        await emit_tracker_data(dbsession, sio, logger, requested_tracker_id)
+        await emit_ui_tracker_values(dbsession, sio, logger, requested_tracker_id)
+        response = {"success": tracking_state["success"], "data": tracking_state.get("data", [])}
+        response["tracker_id"] = requested_tracker_id
+        return response
 
 
 async def set_tracking_state(
     sio: Any, data: Optional[Dict], logger: Any, sid: str
-) -> Dict[str, Union[bool, dict]]:
+) -> Dict[str, Any]:
     """
     Update tracking state and emit tracker data.
 
@@ -152,12 +182,39 @@ async def set_tracking_state(
     """
     logger.info(f"Updating satellite tracking state, data: {data}")
 
+    try:
+        tracker_id = require_tracker_id((data or {}).get("tracker_id"))
+    except InvalidTrackerIdError:
+        return _tracker_id_required_response()
+
     # Extract the value from the data structure
     value = data.get("value", {}) if data else {}
 
+    # Enforce one rotator -> one tracker ownership.
+    assignment_previous_rotator = get_assigned_rotator_for_tracker(tracker_id)
+    requested_rotator_id = value.get("rotator_id") if value else None
+    ownership_touched = requested_rotator_id is not None
+    if ownership_touched:
+        assignment_result = assign_rotator_to_tracker(tracker_id, requested_rotator_id)
+        if not assignment_result.get("success"):
+            owner_tracker_id = assignment_result.get("owner_tracker_id")
+            message = f"Rotator '{requested_rotator_id}' is already assigned to tracker '{owner_tracker_id}'."
+            return {
+                "success": False,
+                "error": "rotator_in_use",
+                "message": message,
+                "data": {
+                    "tracker_id": tracker_id,
+                    "rotator_id": requested_rotator_id,
+                    "owner_tracker_id": owner_tracker_id,
+                },
+            }
+
     # Use TrackerManager to update tracking state
-    manager = get_tracker_manager()
+    manager = get_tracker_manager(tracker_id)
     result = await manager.update_tracking_state(requester_sid=sid, **value)
+    if not result.get("success") and ownership_touched:
+        restore_tracker_rotator_assignment(tracker_id, assignment_previous_rotator)
     command_id = result.get("command_id")
 
     command_scope = result.get("command_scope", TrackerCommandScopes.TRACKING)
@@ -170,6 +227,7 @@ async def set_tracking_state(
             SocketEvents.TRACKER_COMMAND_STATUS,
             {
                 "command_id": command_id,
+                "tracker_id": tracker_id,
                 "status": TrackerCommandStatus.SUBMITTED,
                 "scope": command_scope,
                 "requested_state": requested_state,
@@ -198,17 +256,28 @@ async def set_tracking_state(
 
     # Emit so that any open browsers are also informed of any change
     async with AsyncSessionLocal() as dbsession:
-        await emit_tracker_data(dbsession, sio, logger)
-        await emit_ui_tracker_values(dbsession, sio, logger)
+        await emit_tracker_data(dbsession, sio, logger, tracker_id)
+        await emit_ui_tracker_values(dbsession, sio, logger, tracker_id)
+    await emit_tracker_instances(sio)
 
     return {
         "success": result.get("success", False),
         "data": {
+            "tracker_id": tracker_id,
             "value": result.get("data", {}).get("value", value),
             "command_id": command_id,
             "command_scope": command_scope,
             "requested_state": requested_state,
         },
+    }
+
+
+async def get_tracker_instances(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Union[bool, dict]]:
+    return {
+        "success": True,
+        "data": get_tracker_instances_payload(),
     }
 
 
@@ -261,6 +330,7 @@ def register_handlers(registry):
         {
             "get-tracking-state": (get_tracking_state, "data_request"),
             "set-tracking-state": (set_tracking_state, "data_submission"),
+            "get-tracker-instances": (get_tracker_instances, "data_request"),
             "fetch-next-passes": (fetch_next_passes, "data_request"),
         }
     )

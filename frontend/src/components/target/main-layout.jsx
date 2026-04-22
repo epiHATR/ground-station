@@ -54,11 +54,11 @@ import {
     satellitePathsSelector,
     satelliteTransmittersSelector
 } from './state-selectors.jsx';
-import ControllerTabs from "../common/controller.jsx";
 import TargetSatelliteMapContainer from './satellite-map.jsx';
-import TargetSatelliteTransmittersIsland from "./satellite-transmitters.jsx";
 import SatellitePassTimeline from "./timeline-main.jsx";
 import TargetSatelliteSelectorBar from "./target-satellite-selector-bar.jsx";
+import RotatorControl from "../dashboard/rotator-control.jsx";
+import RigControl from "../dashboard/rig-control.jsx";
 
 
 // global leaflet map object
@@ -73,6 +73,13 @@ export const handleSetGridEditableTarget = function (value) {
 
 export const gridLayoutStoreName = 'target-sat-track-layouts';
 const SHARED_RESIZE_HANDLES = ['s', 'sw', 'w', 'se', 'nw', 'ne', 'e'];
+const FIXED_ISLAND_HEIGHTS = {
+    lg: { 'rotator-control': 13, 'rig-control': 13 },
+    md: { 'rotator-control': 13, 'rig-control': 13 },
+    sm: { 'rotator-control': 13, 'rig-control': 13 },
+    xs: { 'rotator-control': 13, 'rig-control': 13 },
+    xxs: { 'rotator-control': 13, 'rig-control': 13 },
+};
 
 // -------------------------------------------------
 // Leaflet icon path fix for React
@@ -113,6 +120,64 @@ function normalizeLayoutsResizeHandles(layouts) {
                 }))
                 : items,
         ]),
+    );
+}
+
+function ensureLayoutsContainRequiredItems(layouts, defaultLayouts) {
+    if (!layouts || typeof layouts !== 'object') {
+        return layouts;
+    }
+
+    return Object.fromEntries(
+        Object.entries(layouts).map(([breakpoint, items]) => {
+            const currentItems = Array.isArray(items) ? [...items] : [];
+            const defaultItems = Array.isArray(defaultLayouts?.[breakpoint]) ? defaultLayouts[breakpoint] : [];
+            const currentKeys = new Set(currentItems.map((item) => item?.i).filter(Boolean));
+            const missingDefaults = defaultItems.filter((item) => item?.i && !currentKeys.has(item.i));
+            return [breakpoint, [...currentItems, ...missingDefaults]];
+        }),
+    );
+}
+
+function removeDeprecatedLayoutItems(layouts) {
+    if (!layouts || typeof layouts !== 'object') {
+        return layouts;
+    }
+
+    return Object.fromEntries(
+        Object.entries(layouts).map(([breakpoint, items]) => [
+            breakpoint,
+            Array.isArray(items)
+                ? items.filter((item) => item?.i !== 'transmitters')
+                : items,
+        ]),
+    );
+}
+
+function enforceFixedIslandHeights(layouts) {
+    if (!layouts || typeof layouts !== 'object') {
+        return layouts;
+    }
+
+    return Object.fromEntries(
+        Object.entries(layouts).map(([breakpoint, items]) => {
+            const fixedHeights = FIXED_ISLAND_HEIGHTS[breakpoint] || {};
+            return [
+                breakpoint,
+                Array.isArray(items)
+                    ? items.map((item) => {
+                        const fixedHeight = fixedHeights[item?.i];
+                        if (!fixedHeight) return item;
+                        return {
+                            ...item,
+                            h: fixedHeight,
+                            minH: fixedHeight,
+                            maxH: fixedHeight,
+                        };
+                    })
+                    : items,
+            ];
+        }),
     );
 }
 
@@ -261,7 +326,7 @@ const TargetSatelliteLayout = React.memo(function TargetSatelliteLayout() {
             "static": false,
             "resizeHandles": ["se", "ne", "nw", "sw", "s", "e", "w"]
         }, {
-            "w": 3,
+            "w": 6,
             "h": 13,
             "x": 0,
             "y": 0,
@@ -279,12 +344,28 @@ const TargetSatelliteLayout = React.memo(function TargetSatelliteLayout() {
             "moved": false,
             "static": false,
             "resizeHandles": ["se", "ne", "nw", "sw", "s", "e", "w"]
-        }, {"w": 3, "h": 13, "x": 3, "y": 0, "i": "transmitters", "moved": false, "static": false}, {
+        }, {
             "w": 12,
             "h": 6,
             "x": 0,
             "y": 13,
             "i": "timeline",
+            "moved": false,
+            "static": false
+        }, {
+            "w": 6,
+            "h": 9,
+            "x": 0,
+            "y": 26,
+            "i": "rotator-control",
+            "moved": false,
+            "static": false
+        }, {
+            "w": 6,
+            "h": 9,
+            "x": 6,
+            "y": 26,
+            "i": "rig-control",
             "moved": false,
             "static": false
         }],
@@ -298,7 +379,7 @@ const TargetSatelliteLayout = React.memo(function TargetSatelliteLayout() {
             "static": false,
             "resizeHandles": ["se", "ne", "nw", "sw", "s", "e", "w"]
         }, {
-            "w": 3,
+            "w": 6,
             "h": 15,
             "x": 0,
             "y": 0,
@@ -316,12 +397,28 @@ const TargetSatelliteLayout = React.memo(function TargetSatelliteLayout() {
             "moved": false,
             "static": false,
             "resizeHandles": ["se", "ne", "nw", "sw", "s", "e", "w"]
-        }, {"w": 3, "h": 15, "x": 3, "y": 0, "i": "transmitters", "moved": false, "static": false}, {
+        }, {
             "w": 10,
             "h": 6,
             "x": 0,
             "y": 15,
             "i": "timeline",
+            "moved": false,
+            "static": false
+        }, {
+            "w": 5,
+            "h": 9,
+            "x": 0,
+            "y": 30,
+            "i": "rotator-control",
+            "moved": false,
+            "static": false
+        }, {
+            "w": 5,
+            "h": 9,
+            "x": 5,
+            "y": 30,
+            "i": "rig-control",
             "moved": false,
             "static": false
         }],
@@ -335,7 +432,7 @@ const TargetSatelliteLayout = React.memo(function TargetSatelliteLayout() {
             "static": false,
             "resizeHandles": ["se", "ne", "nw", "sw", "s", "e", "w"]
         }, {
-            "w": 3,
+            "w": 6,
             "h": 15,
             "x": 0,
             "y": 30,
@@ -353,12 +450,28 @@ const TargetSatelliteLayout = React.memo(function TargetSatelliteLayout() {
             "moved": false,
             "static": false,
             "resizeHandles": ["se", "ne", "nw", "sw", "s", "e", "w"]
-        }, {"w": 3, "h": 15, "x": 3, "y": 30, "i": "transmitters", "moved": false, "static": false}, {
+        }, {
             "w": 6,
             "h": 6,
             "x": 0,
             "y": 15,
             "i": "timeline",
+            "moved": false,
+            "static": false
+        }, {
+            "w": 3,
+            "h": 9,
+            "x": 0,
+            "y": 45,
+            "i": "rotator-control",
+            "moved": false,
+            "static": false
+        }, {
+            "w": 3,
+            "h": 9,
+            "x": 3,
+            "y": 45,
+            "i": "rig-control",
             "moved": false,
             "static": false
         }],
@@ -373,7 +486,7 @@ const TargetSatelliteLayout = React.memo(function TargetSatelliteLayout() {
             "resizeHandles": ["se", "ne", "nw", "sw", "s", "e", "w"]
         }, {
             "w": 2,
-            "h": 12,
+            "h": 18,
             "x": 0,
             "y": 36,
             "i": "info",
@@ -399,12 +512,28 @@ const TargetSatelliteLayout = React.memo(function TargetSatelliteLayout() {
             "moved": false,
             "static": false,
             "resizeHandles": ["se", "ne", "nw", "sw", "s", "e", "w"]
-        }, {"w": 2, "h": 16, "x": 0, "y": 48, "i": "transmitters", "moved": false, "static": false}, {
+        }, {
             "w": 2,
             "h": 6,
             "x": 0,
             "y": 21,
             "i": "timeline",
+            "moved": false,
+            "static": false
+        }, {
+            "w": 2,
+            "h": 9,
+            "x": 0,
+            "y": 64,
+            "i": "rotator-control",
+            "moved": false,
+            "static": false
+        }, {
+            "w": 2,
+            "h": 9,
+            "x": 0,
+            "y": 73,
+            "i": "rig-control",
             "moved": false,
             "static": false
         }]
@@ -428,11 +557,17 @@ const TargetSatelliteLayout = React.memo(function TargetSatelliteLayout() {
     // we load any stored layouts from localStorage or fallback to default
     const [layouts, setLayouts] = useState(() => {
         const loaded = loadLayoutsFromLocalStorage();
-        return normalizeLayoutsResizeHandles(loaded ?? defaultLayouts);
+        const mergedLayouts = ensureLayoutsContainRequiredItems((loaded ?? defaultLayouts), defaultLayouts);
+        const withoutDeprecatedItems = removeDeprecatedLayoutItems(mergedLayouts);
+        const constrainedLayouts = enforceFixedIslandHeights(withoutDeprecatedItems);
+        return normalizeLayoutsResizeHandles(constrainedLayouts);
     });
 
     function handleLayoutsChange(currentLayout, allLayouts) {
-        const normalizedLayouts = normalizeLayoutsResizeHandles(allLayouts);
+        const mergedLayouts = ensureLayoutsContainRequiredItems(allLayouts, defaultLayouts);
+        const withoutDeprecatedItems = removeDeprecatedLayoutItems(mergedLayouts);
+        const constrainedLayouts = enforceFixedIslandHeights(withoutDeprecatedItems);
+        const normalizedLayouts = normalizeLayoutsResizeHandles(constrainedLayouts);
         setLayouts(normalizedLayouts);
         saveLayoutsToLocalStorage(normalizedLayouts);
     }
@@ -473,9 +608,6 @@ const TargetSatelliteLayout = React.memo(function TargetSatelliteLayout() {
         // <StyledIslandParentScrollbar key="satselector">
         //     <SatSelectorIsland initialNoradId={noradId} initialGroupId={groupId}/>
         // </StyledIslandParentScrollbar>,
-        <StyledIslandParentScrollbar key="transmitters">
-            <TargetSatelliteTransmittersIsland/>
-        </StyledIslandParentScrollbar>,
         <StyledIslandParentNoScrollbar key="timeline">
             <SatellitePassTimeline
                 timeWindowHours={nextPassesHours}
@@ -485,11 +617,14 @@ const TargetSatelliteLayout = React.memo(function TargetSatelliteLayout() {
                 showGeostationarySatellites={true}
             />
         </StyledIslandParentNoScrollbar>,
+        <StyledIslandParentScrollbar key="rotator-control">
+            <RotatorControl />
+        </StyledIslandParentScrollbar>,
+        <StyledIslandParentScrollbar key="rig-control">
+            <RigControl />
+        </StyledIslandParentScrollbar>,
         // <StyledIslandParentScrollbar key="video">
         //     <CameraView/>
-        // </StyledIslandParentScrollbar>,
-        // <StyledIslandParentScrollbar key="rotator-control">
-        //     <ControllerTabs />
         // </StyledIslandParentScrollbar>,
     ];
 

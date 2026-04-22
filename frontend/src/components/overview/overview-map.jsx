@@ -17,7 +17,7 @@
  *
  */
 
-import React, {useCallback, useEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
     MapContainer,
     TileLayer,
@@ -196,7 +196,48 @@ const SatelliteMapContainer = ({handleSetTrackingOnBackend}) => {
         areSatellitesEquivalent
     );
 
-    const trackingSatelliteId = useSelector((state) => state.targetSatTrack.satelliteId);
+    const trackerInstances = useSelector((state) => state.trackerInstances?.instances || []);
+    const trackedSatelliteIds = useMemo(() => {
+        const ids = new Set();
+        trackerInstances.forEach((instance) => {
+            const state = instance?.tracking_state || {};
+            const noradId = state?.norad_id;
+            const groupId = state?.group_id;
+            if (noradId == null) {
+                return;
+            }
+            if (selectedSatGroupId && groupId && String(groupId) !== String(selectedSatGroupId)) {
+                return;
+            }
+            ids.add(Number(noradId));
+        });
+        return ids;
+    }, [trackerInstances, selectedSatGroupId]);
+    const trackedSatelliteIdsList = useMemo(
+        () => Array.from(trackedSatelliteIds),
+        [trackedSatelliteIds]
+    );
+    const targetNumberByNorad = useMemo(() => {
+        const mapping = {};
+        trackerInstances.forEach((instance, index) => {
+            const state = instance?.tracking_state || {};
+            const noradId = state?.norad_id;
+            const groupId = state?.group_id;
+            if (noradId == null) {
+                return;
+            }
+            if (selectedSatGroupId && groupId && String(groupId) !== String(selectedSatGroupId)) {
+                return;
+            }
+            const key = String(noradId);
+            const targetNumber = Number(instance?.target_number || (index + 1));
+            if (mapping[key] == null || targetNumber < mapping[key]) {
+                mapping[key] = targetNumber;
+            }
+        });
+        return mapping;
+    }, [trackerInstances, selectedSatGroupId]);
+    const trackingSatelliteId = trackedSatelliteIdsList[0] ?? null;
     const [mapLayers, setMapLayers] = useState({
         currentPastSatellitesPaths: [],
         currentFutureSatellitesPaths: [],
@@ -450,7 +491,7 @@ const SatelliteMapContainer = ({handleSetTrackingOnBackend}) => {
                 const isVisible = isSatelliteVisible(satellite['tle1'], satellite['tle2'], now, location);
 
                 // Crosshairs for tracking satellite - always shown when the satellite is being tracked
-                if (trackingSatelliteId === noradId) {
+                if (trackedSatelliteIds.has(Number(noradId))) {
                     const crosshairColor = theme.palette.error.main;
 
                     // Create a custom square icon using DivIcon for pixel-perfect square
@@ -541,7 +582,8 @@ const SatelliteMapContainer = ({handleSetTrackingOnBackend}) => {
                     }
                 }
 
-                if (showTooltip || selectedSatelliteId === noradId || trackingSatelliteId === noradId) {
+                const isTracked = trackedSatelliteIds.has(Number(noradId));
+                if (showTooltip || selectedSatelliteId === noradId || isTracked) {
                     currentPos.push(
                         <SatelliteMarker
                             key={`satellite-marker-${satellite.norad_id}`}
@@ -551,6 +593,8 @@ const SatelliteMapContainer = ({handleSetTrackingOnBackend}) => {
                             velocity={velocity}
                             isVisible={isVisible}
                             trackingSatelliteId={trackingSatelliteId}
+                            trackingSatelliteIds={trackedSatelliteIdsList}
+                            targetNumberByNorad={targetNumberByNorad}
                             selectedSatelliteId={selectedSatelliteId}
                             markerEventHandlers={markerEventHandlers}
                             satelliteIcon={isVisible ? overviewVisibleSatelliteIcon : satelliteIconDimCircle}
@@ -644,6 +688,8 @@ const SatelliteMapContainer = ({handleSetTrackingOnBackend}) => {
         showTooltip,
         selectedSatelliteId,
         trackingSatelliteId,
+        trackedSatelliteIds,
+        trackedSatelliteIdsList,
     ]);
 
     useEffect(() => {

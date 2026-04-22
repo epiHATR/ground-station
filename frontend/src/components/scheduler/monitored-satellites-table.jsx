@@ -75,7 +75,17 @@ const MonitoredSatellitesTable = () => {
 
     const monitoredSatellites = useSelector((state) => state.scheduler?.monitoredSatellites || []);
     const loading = useSelector((state) => state.scheduler?.monitoredSatellitesLoading || false);
+    const trackerInstances = useSelector((state) => state.trackerInstances?.instances || []);
     const rowSelectionModel = useMemo(() => toRowSelectionModel(selectedIds), [selectedIds]);
+    const targetNumberByTrackerId = useMemo(() => {
+        const mapping = {};
+        trackerInstances.forEach((instance, index) => {
+            const trackerId = instance?.tracker_id;
+            if (!trackerId) return;
+            mapping[String(trackerId)] = Number(instance?.target_number || (index + 1));
+        });
+        return mapping;
+    }, [trackerInstances]);
 
     useEffect(() => {
         if (socket) {
@@ -260,13 +270,35 @@ const MonitoredSatellitesTable = () => {
         },
         {
             field: 'rotator',
-            headerName: 'Rotator',
-            width: 90,
+            headerName: 'Target / Rotator',
+            minWidth: 180,
+            flex: 1,
+            cellClassName: 'target-rotator-nowrap-cell',
+            headerClassName: 'target-rotator-nowrap-header',
             renderCell: (params) => {
-                return params.value?.tracking_enabled ? (
-                    <Chip label="Enabled" size="small" color="success" variant="outlined" />
-                ) : (
-                    <Typography variant="body2" color="text.secondary">-</Typography>
+                const rotator = params.value || {};
+                const trackerId = rotator?.tracker_id || '';
+                const targetNumber = trackerId ? targetNumberByTrackerId[String(trackerId)] : null;
+                const targetLabel = targetNumber ? `Target ${targetNumber}` : 'Unassigned';
+                return (
+                    <Stack
+                        direction="row"
+                        spacing={0.8}
+                        alignItems="center"
+                        sx={{ py: 0.5, width: '100%', whiteSpace: 'nowrap', overflow: 'hidden' }}
+                    >
+                        <Chip
+                            size="small"
+                            color={targetNumber ? 'info' : 'default'}
+                            variant={targetNumber ? 'filled' : 'outlined'}
+                            label={targetLabel}
+                            sx={{ flexShrink: 0 }}
+                        />
+                        <Typography variant="caption" color="text.secondary" noWrap>
+                            {rotator?.tracking_enabled ? 'Tracking ON' : 'Tracking OFF'}
+                            {trackerId ? ` • ${String(trackerId).slice(0, 8)}` : ''}
+                        </Typography>
+                    </Stack>
                 );
             },
         },
@@ -407,6 +439,13 @@ const MonitoredSatellitesTable = () => {
                         '& .MuiDataGrid-cell': {
                             display: 'flex',
                             alignItems: 'center',
+                        },
+                        '& .target-rotator-nowrap-cell': {
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                        },
+                        '& .target-rotator-nowrap-header .MuiDataGrid-columnHeaderTitle': {
+                            whiteSpace: 'nowrap',
                         },
                     }}
                 />

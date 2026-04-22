@@ -20,11 +20,19 @@ import traceback
 from typing import Any, Dict, List
 
 from common.logger import logger
+from tracker.contracts import normalize_tracker_id, require_tracker_id
 from tracker.runner import get_tracker_manager
 
 
 class TrackerHandler:
     """Handles rotator tracking lifecycle for observations."""
+
+    @staticmethod
+    def _resolve_tracker_id(rotator_config: Dict[str, Any]) -> str:
+        tracker_id: str = normalize_tracker_id(rotator_config.get("tracker_id"))
+        if tracker_id:
+            return tracker_id
+        return str(require_tracker_id(rotator_config.get("id")))
 
     async def start_tracker_task(
         self,
@@ -58,7 +66,8 @@ class TrackerHandler:
                     break
 
             # Update tracking state to target this satellite
-            tracker_manager = get_tracker_manager()
+            tracker_id = self._resolve_tracker_id(rotator_config)
+            tracker_manager = get_tracker_manager(tracker_id)
             unpark_before_tracking = bool(rotator_config.get("unpark_before_tracking", False))
             tracking_state = await tracker_manager.get_tracking_state() or {}
             current_rotator_state = str(tracking_state.get("rotator_state", "")).lower()
@@ -111,7 +120,8 @@ class TrackerHandler:
                 logger.debug(f"No rotator configured for observation {observation_id}")
                 return True
 
-            tracker_manager = get_tracker_manager()
+            tracker_id = self._resolve_tracker_id(rotator_config)
+            tracker_manager = get_tracker_manager(tracker_id)
             park_after_observation = bool(rotator_config.get("park_after_observation", False))
 
             if park_after_observation:

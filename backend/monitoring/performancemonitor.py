@@ -22,7 +22,7 @@ import time
 from server import runtimestate
 from session.socketregistry import SESSIONS
 from tracker.messages import tracker_stats
-from tracker.runner import tracker_process
+from tracker.runner import get_tracker_supervisor
 
 logger = logging.getLogger("performance-monitor")
 
@@ -1353,7 +1353,7 @@ class PerformanceMonitor(threading.Thread):
                         "tracking_cycles_per_sec": tracking_cycles_rate,
                     },
                     "connections": connections,
-                    "is_alive": tracker_process.is_alive() if tracker_process else False,
+                    "is_alive": get_tracker_supervisor().is_alive(tracker_id),
                 }
 
         except Exception as e:

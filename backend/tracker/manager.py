@@ -29,14 +29,9 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional, cast
 
 import crud
-from common.constants import (
-    RigStates,
-    RotatorStates,
-    TrackerCommandScopes,
-    TrackerCommandStatus,
-    TrackingStateNames,
-)
+from common.constants import RigStates, RotatorStates, TrackerCommandScopes, TrackerCommandStatus
 from db import AsyncSessionLocal
+from tracker.contracts import get_tracking_state_name, require_tracker_id
 from tracker.ipc import (
     TRACKER_MSG_COMMAND,
     TRACKER_MSG_SET_HARDWARE,
@@ -71,8 +66,10 @@ class TrackerManager:
     state, which the tracker will pick up on its next iteration (~2 seconds).
     """
 
-    def __init__(self, queue_to_tracker=None):
+    def __init__(self, queue_to_tracker=None, tracker_id: str = ""):
         self.queue_to_tracker = queue_to_tracker
+        self.tracker_id = require_tracker_id(tracker_id)
+        self.tracking_state_name = get_tracking_state_name(self.tracker_id)
         self.current_tracking_state: Optional[Dict[str, Any]] = None
         self.pending_commands: Dict[str, PendingTrackingCommand] = {}
         self.command_timeout_sec: float = 20.0
@@ -81,14 +78,16 @@ class TrackerManager:
         if not self.queue_to_tracker:
             logger.warning("Tracker queue not initialized; skipping IPC send")
             return
-        self.queue_to_tracker.put(build_tracker_message(msg_type, payload))
+        message = build_tracker_message(msg_type, payload)
+        message["tracker_id"] = self.tracker_id
+        self.queue_to_tracker.put(message)
 
     async def _ensure_tracking_state(self) -> Optional[Dict[str, Any]]:
         if self.current_tracking_state:
             return self.current_tracking_state
         async with AsyncSessionLocal() as dbsession:
             current_state_reply = await crud.trackingstate.get_tracking_state(
-                dbsession, name=TrackingStateNames.SATELLITE_TRACKING
+                dbsession, name=self.tracking_state_name
             )
         if not current_state_reply.get("success"):
             logger.error(f"Failed to get tracking state: {current_state_reply}")
@@ -145,7 +144,7 @@ class TrackerManager:
         async with AsyncSessionLocal() as dbsession:
             # Get current tracking state
             current_state_reply = await crud.trackingstate.get_tracking_state(
-                dbsession, name=TrackingStateNames.SATELLITE_TRACKING
+                dbsession, name=self.tracking_state_name
             )
 
             if not current_state_reply.get("success"):
@@ -162,7 +161,7 @@ class TrackerManager:
             result = await crud.trackingstate.set_tracking_state(
                 dbsession,
                 {
-                    "name": TrackingStateNames.SATELLITE_TRACKING,
+                    "name": self.tracking_state_name,
                     "value": updated_value,
                 },
             )
@@ -215,7 +214,7 @@ class TrackerManager:
         """
         async with AsyncSessionLocal() as dbsession:
             result = await crud.trackingstate.get_tracking_state(
-                dbsession, name=TrackingStateNames.SATELLITE_TRACKING
+                dbsession, name=self.tracking_state_name
             )
 
             if result.get("success") and result.get("data"):
@@ -423,7 +422,7 @@ class TrackerManager:
     async def sync_tracking_state_from_db(self) -> None:
         async with AsyncSessionLocal() as dbsession:
             current_state_reply = await crud.trackingstate.get_tracking_state(
-                dbsession, name=TrackingStateNames.SATELLITE_TRACKING
+                dbsession, name=self.tracking_state_name
             )
         if not current_state_reply.get("success"):
             logger.error(f"Failed to get tracking state: {current_state_reply}")
@@ -623,6 +622,9 @@ class TrackerManager:
         return True
 
     def process_tracking_update(self, tracking_update: Dict[str, Any]) -> list[Dict[str, Any]]:
+        update_tracker_id = require_tracker_id(tracking_update.get("tracker_id"))
+        if update_tracker_id != self.tracker_id:
+            return []
         if not self.pending_commands:
             return []
 
@@ -642,6 +644,7 @@ class TrackerManager:
                 status_events.append(
                     {
                         "command_id": command.command_id,
+                        "tracker_id": self.tracker_id,
                         "status": TrackerCommandStatus.STARTED,
                         "scope": command.scope,
                     }
@@ -651,6 +654,7 @@ class TrackerManager:
                 status_events.append(
                     {
                         "command_id": command.command_id,
+                        "tracker_id": self.tracker_id,
                         "status": TrackerCommandStatus.SUCCEEDED,
                         "scope": command.scope,
                     }
@@ -662,6 +666,7 @@ class TrackerManager:
                 status_events.append(
                     {
                         "command_id": command.command_id,
+                        "tracker_id": self.tracker_id,
                         "status": TrackerCommandStatus.FAILED,
                         "scope": command.scope,
                         "reason": "rotator_error",
@@ -674,6 +679,7 @@ class TrackerManager:
                 status_events.append(
                     {
                         "command_id": command.command_id,
+                        "tracker_id": self.tracker_id,
                         "status": TrackerCommandStatus.FAILED,
                         "scope": command.scope,
                         "reason": "rig_error",
@@ -686,6 +692,7 @@ class TrackerManager:
                 status_events.append(
                     {
                         "command_id": command.command_id,
+                        "tracker_id": self.tracker_id,
                         "status": TrackerCommandStatus.FAILED,
                         "scope": command.scope,
                         "reason": "timeout",

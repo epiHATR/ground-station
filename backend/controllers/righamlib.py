@@ -95,7 +95,7 @@ class RigController:
             return True
 
         try:
-            close_task = asyncio.create_task(asyncio.to_thread(self.rig.close))  # type: ignore[attr-defined]
+            close_task = asyncio.create_task(asyncio.to_thread(self.rig.close))
 
             # Wait with timeout
             await asyncio.wait_for(close_task, timeout=3.0)
@@ -193,7 +193,7 @@ class RigController:
         self.check_connection()
 
         try:
-            freq = await asyncio.to_thread(self.rig.get_freq)  # type: ignore[attr-defined]
+            freq = await asyncio.to_thread(self.rig.get_freq)
             assert freq is not None, "Frequency is None"
 
             self.logger.debug(f"Current frequency: {freq} Hz")
@@ -209,7 +209,7 @@ class RigController:
         self.check_connection()
 
         try:
-            mode, bandwidth = await asyncio.to_thread(self.rig.get_mode)  # type: ignore[attr-defined]
+            mode, bandwidth = await asyncio.to_thread(self.rig.get_mode)
             assert mode is not None, "Mode is None"
 
             self.logger.debug(f"Current mode: {mode}, bandwidth: {bandwidth} Hz")
@@ -306,7 +306,7 @@ class RigController:
         self.logger.info(f"Setting rig frequency to {target_freq} Hz on VFO {vfo}")
 
         try:
-            status = await asyncio.to_thread(self.rig.set_freq, _freq_t=target_freq, vfo=hamlib_vfo)  # type: ignore[attr-defined]
+            status = await asyncio.to_thread(self.rig.set_freq, _freq_t=target_freq, vfo=hamlib_vfo)
             self.logger.debug(f"Set frequency command: status={status}")
 
         except Exception as e:
@@ -341,7 +341,7 @@ class RigController:
 
         try:
             self.logger.info(f"Setting rig mode to {mode}, bandwidth={bandwidth} Hz")
-            status = await asyncio.to_thread(self.rig.set_mode, mode, bandwidth)  # type: ignore[attr-defined]
+            status = await asyncio.to_thread(self.rig.set_mode, mode, bandwidth)
             self.logger.debug(f"Set mode command: status={status}")
 
             return True

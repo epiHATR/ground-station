@@ -44,11 +44,12 @@ import {
 } from './overview-slice.jsx';
 import NextPassesGroupIsland from "./satellite-passes.jsx";
 import OverviewSatelliteInfoCard from "./satellite-info.jsx";
-import {setTrackingStateInBackend} from "../target/target-slice.jsx";
+import { setRotator, setTrackerId, setTrackingStateInBackend } from "../target/target-slice.jsx";
 import SatelliteMapContainer from './overview-map.jsx';
 import SatelliteDetailsTable from "./satellites-table.jsx";
 import SatelliteGroupSelectorBar from "./satellite-group-selector-bar.jsx";
 import SatellitePassTimeline from "../target/timeline-main.jsx";
+import { useTargetRotatorSelectionDialog } from '../target/use-target-rotator-selection-dialog.jsx';
 
 // Wrapper component to adapt overview passes to Timeline component
 const OverviewTimelineWrapper = React.memo(() => {
@@ -158,9 +159,9 @@ const GlobalSatelliteTrackLayout = React.memo(function GlobalSatelliteTrackLayou
     const {
         trackingState,
         selectedRadioRig,
-        selectedRotator,
         selectedTransmitter
     } = useSelector(state => state.targetSatTrack);
+    const { requestRotatorForTarget, dialog: rotatorSelectionDialog } = useTargetRotatorSelectionDialog();
 
     const {width, containerRef, mounted} = useContainerWidth({measureBeforeMount: true});
 
@@ -425,14 +426,23 @@ const GlobalSatelliteTrackLayout = React.memo(function GlobalSatelliteTrackLayou
         return normalizeLayoutsResizeHandles(loaded ?? defaultLayouts);
     });
 
-    const handleSetTrackingOnBackend = (noradId) => {
+    const handleSetTrackingOnBackend = async ({ noradId, satelliteName }) => {
+        const selectedAssignment = await requestRotatorForTarget(satelliteName);
+        if (!selectedAssignment) {
+            return;
+        }
+        const { rotatorId, trackerId } = selectedAssignment;
+        dispatch(setRotator(rotatorId));
+        dispatch(setTrackerId(trackerId));
+
         const newTrackingState = {
+            'tracker_id': trackerId,
             'norad_id': noradId,
             'group_id': selectedSatGroupId,
             'rotator_state': trackingState['rotator_state'],
             'rig_state': trackingState['rig_state'],
             'rig_id': selectedRadioRig,
-            'rotator_id': selectedRotator,
+            'rotator_id': rotatorId,
             'transmitter_id': selectedTransmitter,
         };
 
@@ -442,7 +452,7 @@ const GlobalSatelliteTrackLayout = React.memo(function GlobalSatelliteTrackLayou
                 // Success handling
             })
             .catch((error) => {
-                toast.error(`${t('satellite_info.failed_tracking')}: ${error.message}`);
+                toast.error(`${t('satellite_info.failed_tracking')}: ${error?.message || error?.error || 'Unknown error'}`);
             });
     };
 
@@ -496,6 +506,7 @@ const GlobalSatelliteTrackLayout = React.memo(function GlobalSatelliteTrackLayou
 
     return (
         <>
+            {rotatorSelectionDialog}
             <SatelliteGroupSelectorBar/>
             <div ref={containerRef}>
                 {ResponsiveGridLayoutParent}

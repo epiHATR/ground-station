@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+import re
 import traceback
 import uuid
 from datetime import datetime, timezone
@@ -24,6 +25,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from common.common import logger, serialize_object
 from db.models import ScheduledObservations
 from observations.constants import STATUS_SCHEDULED
+
+TRACKER_SLOT_ID_PATTERN = re.compile(r"^target-[1-9][0-9]*$")
+
+
+def _normalize_tracker_slot_id(candidate) -> str:
+    if candidate is None:
+        return ""
+    tracker_id = str(candidate).strip()
+    if not tracker_id or tracker_id.lower() == "none":
+        return ""
+    return tracker_id if TRACKER_SLOT_ID_PATTERN.fullmatch(tracker_id) else ""
 
 
 def _transform_to_db_format(data: dict) -> dict:
@@ -65,8 +77,19 @@ def _transform_to_db_format(data: dict) -> dict:
         "task_start_elevation": data.get("task_start_elevation", 10),
     }
 
+    rotator_config = dict(data.get("rotator", {}) or {})
+    tracker_id = _normalize_tracker_slot_id(rotator_config.get("tracker_id"))
+    if tracker_id:
+        rotator_config["tracker_id"] = tracker_id
+    else:
+        tracker_from_id = _normalize_tracker_slot_id(rotator_config.get("id"))
+        if tracker_from_id:
+            rotator_config["tracker_id"] = tracker_from_id
+        else:
+            rotator_config.pop("tracker_id", None)
+
     hardware_config = {
-        "rotator": data.get("rotator", {}),
+        "rotator": rotator_config,
         "rig": data.get("rig", {}),
         "transmitter": data.get("transmitter", {}),
     }
@@ -118,6 +141,17 @@ def _transform_from_db_format(db_obj: dict) -> dict:
     def to_iso(dt):
         return dt.isoformat() if dt and hasattr(dt, "isoformat") else dt
 
+    rotator_config = dict(hardware_config.get("rotator", {}) or {})
+    tracker_id = _normalize_tracker_slot_id(rotator_config.get("tracker_id"))
+    if tracker_id:
+        rotator_config["tracker_id"] = tracker_id
+    else:
+        tracker_from_id = _normalize_tracker_slot_id(rotator_config.get("id"))
+        if tracker_from_id:
+            rotator_config["tracker_id"] = tracker_from_id
+        else:
+            rotator_config.pop("tracker_id", None)
+
     return {
         "id": db_obj.get("id"),
         "name": db_obj.get("name"),
@@ -136,7 +170,7 @@ def _transform_from_db_format(db_obj: dict) -> dict:
         "task_start": to_iso(db_obj.get("task_start")),
         "task_end": to_iso(db_obj.get("task_end")),
         "task_start_elevation": pass_config.get("task_start_elevation", 10),
-        "rotator": hardware_config.get("rotator", {}),
+        "rotator": rotator_config,
         "rig": hardware_config.get("rig", {}),
         "transmitter": hardware_config.get("transmitter", {}),
         "sessions": sessions,

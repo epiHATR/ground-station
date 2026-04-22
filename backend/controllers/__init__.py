@@ -10,3 +10,5 @@ __version__ = "0.1.0"
 from .rig import RigController
 from .rotator import RotatorController
 from .sdr import SDRController
+
+__all__ = ["RigController", "RotatorController", "SDRController"]

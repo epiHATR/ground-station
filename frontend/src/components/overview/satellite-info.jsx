@@ -39,12 +39,13 @@ import {
 } from "../common/common.jsx";
 import Grid from "@mui/material/Grid";
 import {useSocket} from "../common/socket.jsx";
-import {setTrackingStateInBackend} from "../target/target-slice.jsx";
+import { setRotator, setTrackerId, setTrackingStateInBackend } from "../target/target-slice.jsx";
 import { toast } from '../../utils/toast-with-timestamp.jsx';
 import SettingsInputAntennaIcon from "@mui/icons-material/SettingsInputAntenna";
 import PublicIcon from "@mui/icons-material/Public";
 import { useTranslation } from 'react-i18next';
 import { SatelliteInfoDialog } from '../satellites/satellite-info-page.jsx';
+import { useTargetRotatorSelectionDialog } from '../target/use-target-rotator-selection-dialog.jsx';
 // ElevationDisplay removed per request; display raw value instead
 
 const OverviewSatelliteInfoCard = () => {
@@ -66,9 +67,9 @@ const OverviewSatelliteInfoCard = () => {
         trackingState,
         satelliteId: trackingSatelliteId,
         selectedRadioRig,
-        selectedRotator,
         selectedTransmitter
     } = useSelector(state => state.targetSatTrack);
+    const { requestRotatorForTarget, dialog: rotatorSelectionDialog } = useTargetRotatorSelectionDialog();
 
     // Get timezone preference
     const timezone = useSelector((state) => {
@@ -82,14 +83,23 @@ const OverviewSatelliteInfoCard = () => {
         }
     }, [selectedSatelliteId, dispatch]);
 
-    const handleSetTrackingOnBackend = () => {
+    const handleSetTrackingOnBackend = async () => {
+        const selectedAssignment = await requestRotatorForTarget(satelliteData?.details?.name);
+        if (!selectedAssignment) {
+            return;
+        }
+        const { rotatorId, trackerId } = selectedAssignment;
+        dispatch(setRotator(rotatorId));
+        dispatch(setTrackerId(trackerId));
+
         const newTrackingState = {
+            'tracker_id': trackerId,
             'norad_id': selectedSatelliteId,
             'group_id': selectedSatGroupId,
             'rotator_state': trackingState['rotator_state'],
             'rig_state': trackingState['rig_state'],
             'rig_id': selectedRadioRig,
-            'rotator_id': selectedRotator,
+            'rotator_id': rotatorId,
             'transmitter_id': selectedTransmitter,
         };
 
@@ -99,7 +109,10 @@ const OverviewSatelliteInfoCard = () => {
                 // Success handling
             })
             .catch((error) => {
-                toast.error(t('satellite_info.failed_tracking') + `: ${error.message}`);
+                toast.error(
+                    t('satellite_info.failed_tracking')
+                    + `: ${error?.message || error?.error || 'Unknown error'}`
+                );
             });
     };
 
@@ -228,6 +241,8 @@ const OverviewSatelliteInfoCard = () => {
     );
 
     return (
+        <>
+        {rotatorSelectionDialog}
         <Box sx={{
             height: '100%',
             display: 'flex',
@@ -604,6 +619,7 @@ const OverviewSatelliteInfoCard = () => {
                 />
             )}
         </Box>
+        </>
     );
 };
 

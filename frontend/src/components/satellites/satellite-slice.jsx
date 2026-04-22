@@ -142,6 +142,9 @@ export const deleteTransmitter = createAsyncThunk(
 export const fetchSatellites = createAsyncThunk(
     'satellites/fetchAll',
     async ({ socket, satGroupId }, { rejectWithValue }) => {
+        if (typeof satGroupId !== 'string' || satGroupId.trim() === '') {
+            return rejectWithValue('Missing group id for satellites fetch');
+        }
         try {
             return await new Promise((resolve, reject) => {
                 socket.emit('data_request', 'get-satellites-for-group-id', satGroupId, (res) => {

@@ -108,6 +108,9 @@ export const fetchSatelliteGroups = createAsyncThunk(
 export const fetchSatellitesByGroupId = createAsyncThunk(
     'overviewGroups/fetchSatellitesByGroupIdOverview',
     async ({ socket, satGroupId }, { rejectWithValue }) => {
+        if (typeof satGroupId !== 'string' || satGroupId.trim() === '' || satGroupId === 'none') {
+            return rejectWithValue(`Invalid group id for overview satellites fetch: ${String(satGroupId)}`);
+        }
         return new Promise((resolve, reject) => {
             socket.emit('data_request', 'get-satellites-for-group-id', satGroupId, (response) => {
                 if (response.success) {

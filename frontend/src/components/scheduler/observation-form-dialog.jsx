@@ -17,7 +17,7 @@
  *
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
     Dialog,
@@ -214,6 +214,7 @@ const ObservationFormDialog = () => {
     const selectedGroupId = useSelector((state) => state.scheduler?.satelliteSelection?.groupId);
     const groupOfSats = useSelector((state) => state.scheduler?.satelliteSelection?.groupOfSats || []);
     const rotators = useSelector((state) => state.rotators?.rotators || []);
+    const trackerInstances = useSelector((state) => state.trackerInstances?.instances || []);
     const passes = useSelector((state) => state.scheduler?.satelliteSelection?.passes || []);
     const observations = useSelector((state) => state.scheduler?.observations || []);
     const sdrParameters = useSelector((state) => state.scheduler?.sdrParameters || {});
@@ -222,6 +223,15 @@ const ObservationFormDialog = () => {
     const isSaving = useSelector((state) => state.scheduler?.isSavingObservation || false);
 
     const [activeSessionIndex, setActiveSessionIndex] = useState(0);
+    const targetNumberByTrackerId = useMemo(() => {
+        const mapping = {};
+        trackerInstances.forEach((instance, index) => {
+            const trackerId = instance?.tracker_id;
+            if (!trackerId) return;
+            mapping[String(trackerId)] = Number(instance?.target_number || (index + 1));
+        });
+        return mapping;
+    }, [trackerInstances]);
     const [formData, setFormData] = useState(() => {
         const initialSession = createEmptySession();
         return {
@@ -1199,6 +1209,10 @@ const ObservationFormDialog = () => {
                                                 <Typography variant="caption" color="text.secondary">
                                                     {[
                                                         rotator.host ? `${rotator.host}:${rotator.port}` : null,
+                                                        (() => {
+                                                            const targetNumber = targetNumberByTrackerId[String(rotator.id)];
+                                                            return targetNumber ? `Target ${targetNumber}` : 'Unassigned';
+                                                        })(),
                                                         rotator.min_azimuth != null && rotator.max_azimuth != null ? `Az: ${rotator.min_azimuth}° - ${rotator.max_azimuth}°` : null,
                                                         rotator.min_elevation != null && rotator.max_elevation != null ? `El: ${rotator.min_elevation}° - ${rotator.max_elevation}°` : null,
                                                     ].filter(Boolean).join(' • ') || 'No additional details'}

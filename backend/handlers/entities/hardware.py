@@ -27,7 +27,8 @@ import crud
 from db import AsyncSessionLocal
 from hardware.soapysdrbrowser import discovered_servers
 from session.service import active_sdr_clients
-from tracker.runner import get_tracker_manager
+from tracker.contracts import InvalidTrackerIdError, require_tracker_id
+from tracker.runner import get_all_tracker_managers, get_tracker_manager
 from workers.common import window_functions
 
 logger = logging.getLogger("hardware-handler")
@@ -582,8 +583,8 @@ async def submit_rig(
 
         rigs = await crud.hardware.fetch_rigs(dbsession)
         if add_reply.get("success"):
-            manager = get_tracker_manager()
-            await manager.notify_hardware_changed(rig_id=add_reply.get("data", {}).get("id"))
+            for manager in get_all_tracker_managers().values():
+                await manager.notify_hardware_changed(rig_id=add_reply.get("data", {}).get("id"))
         return {
             "success": (rigs["success"] & add_reply["success"]),
             "data": rigs.get("data", []),
@@ -600,8 +601,8 @@ async def edit_rig(
 
         rigs = await crud.hardware.fetch_rigs(dbsession)
         if edit_reply.get("success") and data:
-            manager = get_tracker_manager()
-            await manager.notify_hardware_changed(rig_id=data.get("id"))
+            for manager in get_all_tracker_managers().values():
+                await manager.notify_hardware_changed(rig_id=data.get("id"))
         return {
             "success": (rigs["success"] & edit_reply["success"]),
             "data": rigs.get("data", []),
@@ -618,12 +619,13 @@ async def delete_rig(
 
         rigs = await crud.hardware.fetch_rigs(dbsession)
         if delete_reply.get("success") and data:
-            manager = get_tracker_manager()
             if isinstance(data, dict):
-                await manager.notify_hardware_changed(rig_id=data.get("id"))
+                for manager in get_all_tracker_managers().values():
+                    await manager.notify_hardware_changed(rig_id=data.get("id"))
             elif isinstance(data, (list, tuple)):
                 for rig_id in data:
-                    await manager.notify_hardware_changed(rig_id=rig_id)
+                    for manager in get_all_tracker_managers().values():
+                        await manager.notify_hardware_changed(rig_id=rig_id)
         return {
             "success": (rigs["success"] & delete_reply["success"]),
             "data": rigs.get("data", []),
@@ -655,8 +657,10 @@ async def submit_rotator(
 
         rotators = await crud.hardware.fetch_rotators(dbsession)
         if add_reply.get("success"):
-            manager = get_tracker_manager()
-            await manager.notify_hardware_changed(rotator_id=add_reply.get("data", {}).get("id"))
+            for manager in get_all_tracker_managers().values():
+                await manager.notify_hardware_changed(
+                    rotator_id=add_reply.get("data", {}).get("id")
+                )
         return {
             "success": (rotators["success"] & add_reply["success"]),
             "data": rotators.get("data", []),
@@ -675,8 +679,8 @@ async def edit_rotator(
         rotators = await crud.hardware.fetch_rotators(dbsession)
         logger.debug(f"Rotators: {rotators}")
         if edit_reply.get("success") and data:
-            manager = get_tracker_manager()
-            await manager.notify_hardware_changed(rotator_id=data.get("id"))
+            for manager in get_all_tracker_managers().values():
+                await manager.notify_hardware_changed(rotator_id=data.get("id"))
         return {
             "success": (rotators["success"] & edit_reply["success"]),
             "data": rotators.get("data", []),
@@ -693,25 +697,33 @@ async def delete_rotator(
 
         rotators = await crud.hardware.fetch_rotators(dbsession)
         if delete_reply.get("success") and data:
-            manager = get_tracker_manager()
             if isinstance(data, dict):
-                await manager.notify_hardware_changed(rotator_id=data.get("id"))
+                for manager in get_all_tracker_managers().values():
+                    await manager.notify_hardware_changed(rotator_id=data.get("id"))
             elif isinstance(data, (list, tuple)):
                 for rotator_id in data:
-                    await manager.notify_hardware_changed(rotator_id=rotator_id)
+                    for manager in get_all_tracker_managers().values():
+                        await manager.notify_hardware_changed(rotator_id=rotator_id)
         return {
             "success": (rotators["success"] & delete_reply["success"]),
             "data": rotators.get("data", []),
         }
 
 
-async def nudge_rotator(
-    sio: Any, data: Optional[Dict], logger: Any, sid: str
-) -> Dict[str, Union[bool, None]]:
+async def nudge_rotator(sio: Any, data: Optional[Dict], logger: Any, sid: str) -> Dict[str, Any]:
     """Nudge rotator position."""
     logger.info(f"Nudging rotator, data: {data}")
     cmd = data.get("cmd", None) if data else None
-    manager = get_tracker_manager()
+    try:
+        tracker_id = require_tracker_id((data or {}).get("tracker_id"))
+    except InvalidTrackerIdError:
+        return {
+            "success": False,
+            "error": "tracker_id_required",
+            "message": "tracker_id is required",
+            "data": None,
+        }
+    manager = get_tracker_manager(tracker_id)
     manager.send_command(cmd, data=None)
     return {"success": True, "data": None}
 
@@ -820,8 +832,8 @@ async def submit_sdr(
 
         sdrs = await crud.hardware.fetch_sdrs(dbsession)
         if add_reply.get("success"):
-            manager = get_tracker_manager()
-            await manager.notify_hardware_changed(rig_id=add_reply.get("data", {}).get("id"))
+            for manager in get_all_tracker_managers().values():
+                await manager.notify_hardware_changed(rig_id=add_reply.get("data", {}).get("id"))
 
         return {
             "success": (sdrs["success"] & add_reply["success"]),
@@ -841,8 +853,8 @@ async def edit_sdr(
         sdrs = await crud.hardware.fetch_sdrs(dbsession)
         logger.debug(f"SDRs: {sdrs}")
         if edit_reply.get("success") and data:
-            manager = get_tracker_manager()
-            await manager.notify_hardware_changed(rig_id=data.get("id"))
+            for manager in get_all_tracker_managers().values():
+                await manager.notify_hardware_changed(rig_id=data.get("id"))
         return {
             "success": (sdrs["success"] & edit_reply["success"]),
             "data": sdrs.get("data", []),
@@ -862,9 +874,9 @@ async def delete_sdr(
 
         sdrs = await crud.hardware.fetch_sdrs(dbsession)
         if delete_reply.get("success") and data:
-            manager = get_tracker_manager()
             for sdr_id in list(data):
-                await manager.notify_hardware_changed(rig_id=sdr_id)
+                for manager in get_all_tracker_managers().values():
+                    await manager.notify_hardware_changed(rig_id=sdr_id)
         return {
             "success": (sdrs["success"] & delete_reply["success"]),
             "data": sdrs.get("data", []),

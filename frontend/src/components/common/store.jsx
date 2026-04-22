@@ -31,6 +31,7 @@ import locationReducer from '../settings/location-slice.jsx';
 import synchronizeReducer from '../satellites/synchronize-slice.jsx';
 import preferencesReducer from '../settings/preferences-slice.jsx';
 import targetSatTrackReducer from '../target/target-slice.jsx'
+import trackerInstancesReducer from '../target/tracker-instances-slice.jsx';
 import overviewSatTrackReducer from '../overview/overview-slice.jsx';
 import dashboardReducer from '../dashboard/dashboard-slice.jsx';
 import cameraReducer from '../hardware/camera-slice.jsx';
@@ -158,7 +159,7 @@ const preferencesPersistConfig = {
 const targetSatTrackPersistConfig = {
     key: 'targetSatTrack',
     storage,
-    whitelist: ['passesTableSortModel']
+    whitelist: ['passesTableSortModel', 'trackerId']
 };
 
 // Persist configuration for overview satellite tracking slice
@@ -324,6 +325,7 @@ export const store = configureStore({
         syncSatellite: persistedSynchronizeReducer,
         preferences: persistedPreferencesReducer,
         targetSatTrack: persistedTargetSatTrackReducer,
+        trackerInstances: trackerInstancesReducer,
         overviewSatTrack: persistedOverviewSatTrackReducer,
         dashboard: persistedDashboardReducer,
         cameras: persistedCameraReducer,

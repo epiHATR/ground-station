@@ -16,12 +16,14 @@
 
 import hashlib
 import logging
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, TypedDict, Union
 
 import crud
 from common.common import is_geostationary, serialize_object
 from db import AsyncSessionLocal
+from tracker.contracts import get_tracking_state_name
 from tracking.footprint import get_satellite_coverage_circle
 from tracking.satellite import (
     get_satellite_az_el,
@@ -421,7 +423,7 @@ def compiled_satellite_data_from_inputs(
     return satellite_data
 
 
-async def get_ui_tracker_state(group_id: str, norad_id: int):
+async def get_ui_tracker_state(group_id: str, norad_id: int, tracker_id: str):
     """
     Fetches the current tracker state for a specified group ID and satellite ID. This function
     interacts with the tracking database using asynchronous functions to retrieve data related
@@ -453,16 +455,25 @@ async def get_ui_tracker_state(group_id: str, norad_id: int):
         async with AsyncSessionLocal() as dbsession:
             groups = await crud.groups.fetch_satellite_group(dbsession)
 
-            # Only fetch satellites if group_id is valid (not None, not empty string)
+            # Only fetch satellites when group_id is a valid UUID.
+            group_id_is_valid_uuid = False
             if group_id and group_id != "":
+                try:
+                    uuid.UUID(str(group_id))
+                    group_id_is_valid_uuid = True
+                except (ValueError, TypeError):
+                    group_id_is_valid_uuid = False
+
+            if group_id_is_valid_uuid:
                 satellites = await crud.satellites.fetch_satellites_for_group_id(
                     dbsession, group_id=group_id
                 )
             else:
                 satellites = {"success": True, "data": []}
 
+            tracking_state_name = get_tracking_state_name(tracker_id)
             tracking_state = await crud.trackingstate.get_tracking_state(
-                dbsession, name="satellite-tracking"
+                dbsession, name=tracking_state_name
             )
             transmitters = await crud.transmitters.fetch_transmitters_for_satellite(
                 dbsession, norad_id=norad_id
@@ -471,9 +482,10 @@ async def get_ui_tracker_state(group_id: str, norad_id: int):
             data["satellites"] = satellites["data"]
             data["group_id"] = group_id
             data["norad_id"] = norad_id
-            data["rig_id"] = tracking_state["data"]["value"].get("rig_id", "none")
-            data["rotator_id"] = tracking_state["data"]["value"].get("rotator_id", "none")
-            data["transmitter_id"] = tracking_state["data"]["value"].get("transmitter_id", "none")
+            tracking_value = (tracking_state.get("data") or {}).get("value", {}) or {}
+            data["rig_id"] = tracking_value.get("rig_id", "none")
+            data["rotator_id"] = tracking_value.get("rotator_id", "none")
+            data["transmitter_id"] = tracking_value.get("transmitter_id", "none")
             data["transmitters"] = transmitters["data"]
             reply["success"] = True
             reply["data"] = data

@@ -16,7 +16,7 @@
 import traceback
 import uuid
 from datetime import datetime, timezone
-from typing import Optional, Union
+from typing import Union
 
 from sqlalchemy import delete, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession

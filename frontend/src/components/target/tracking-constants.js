@@ -45,3 +45,15 @@ export const TRACKER_COMMAND_SCOPES = Object.freeze({
     TARGET: 'target',
     TRACKING: 'tracking',
 });
+
+export const DEFAULT_TRACKER_ID = '';
+
+export const resolveTrackerId = (candidate, fallback = DEFAULT_TRACKER_ID) => {
+    if (typeof candidate === 'string') {
+        const normalized = candidate.trim();
+        if (normalized && normalized !== 'none') {
+            return normalized;
+        }
+    }
+    return fallback;
+};

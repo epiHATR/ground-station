@@ -57,7 +57,6 @@ async def fetch_satellites_for_group_id(session: AsyncSession, group_id: Union[s
     """
     try:
         assert group_id is not None, "group_id is required"
-
         if isinstance(group_id, str):
             group_id = uuid.UUID(group_id)
         elif not isinstance(group_id, uuid.UUID):
@@ -98,7 +97,12 @@ async def fetch_satellites_for_group_id(session: AsyncSession, group_id: Union[s
         return {"success": True, "data": satellites, "error": None}
 
     except Exception as e:
-        logger.error(f"Error fetching satellite(s): {e}")
+        logger.error(
+            "Error fetching satellite(s): %s (input_type=%s input=%r)",
+            e,
+            type(group_id).__name__,
+            group_id,
+        )
         logger.error(traceback.format_exc())
         return {"success": False, "error": str(e)}
 

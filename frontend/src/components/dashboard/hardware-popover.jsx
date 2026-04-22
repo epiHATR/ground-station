@@ -20,7 +20,7 @@
 import Stack from "@mui/material/Stack";
 import * as React from "react";
 import {
-    Box, IconButton,
+    Box, Button, Chip, IconButton, Typography,
 } from "@mui/material";
 import {useCallback, useEffect, useRef, useState} from "react";
 import {useSocket} from "../common/socket.jsx";
@@ -31,36 +31,48 @@ import RadioIcon from '@mui/icons-material/Radio';
 import {
     Popover,
 } from '@mui/material';
-import RotatorControl from "./rotator-control.jsx";
-import RigControl from "./rig-control.jsx";
 import {SatelliteIcon} from "hugeicons-react";
 import OverlayIcon from "./icons-overlay.jsx";
+import { useNavigate } from "react-router-dom";
 
 // Import overlay icons
 import CloseIcon from '@mui/icons-material/Close';
-import CheckIcon from '@mui/icons-material/Check';
-import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
-import SyncIcon from '@mui/icons-material/Sync';
-import ErrorIcon from '@mui/icons-material/Error';
 import WarningIcon from '@mui/icons-material/Warning';
 import LocationSearchingIcon from '@mui/icons-material/LocationSearching';
 import PauseIcon from '@mui/icons-material/Pause';
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import LocalParkingIcon from '@mui/icons-material/LocalParking';
+import LinkIcon from '@mui/icons-material/Link';
+import LinkOffIcon from '@mui/icons-material/LinkOff';
+import TrackChangesIcon from '@mui/icons-material/TrackChanges';
+import StopCircleOutlinedIcon from '@mui/icons-material/StopCircleOutlined';
+import { setTrackerId, setTrackingStateInBackend } from "../target/target-slice.jsx";
+import { TRACKER_COMMAND_STATUS } from "../target/tracking-constants.js";
+import FleetTargetRow from "../common/fleet-target-row.jsx";
 
 const HardwareSettingsPopover = () => {
+    const dispatch = useDispatch();
+    const navigate = useNavigate();
     const { t } = useTranslation('dashboard');
     const {socket} = useSocket();
     const buttonRef = useRef(null);
     const [anchorEl, setAnchorEl] = useState(buttonRef.current);
+    const open = Boolean(anchorEl);
     const [activeIcon, setActiveIcon] = useState(null);
     const [connected, setConnected] = useState(false);
+    const [rowErrors, setRowErrors] = useState({});
+    const trackerId = useSelector((state) => state.targetSatTrack?.trackerId || "");
+    const trackerInstances = useSelector((state) => state.trackerInstances?.instances || []);
+    const trackerViews = useSelector((state) => state.targetSatTrack?.trackerViews || {});
+    const trackerCommandsById = useSelector((state) => state.targetSatTrack?.trackerCommandsById || {});
+    const rotators = useSelector((state) => state.rotators?.rotators || []);
 
     // Keep selector output primitive/lightweight to reduce unnecessary re-renders.
     const hardwareState = useSelector((state) => {
-        const rigData = state.targetSatTrack?.rigData || {};
-        const rotatorData = state.targetSatTrack?.rotatorData || {};
+        const selectedTrackerView = (trackerId && trackerViews?.[trackerId]) || null;
+        const rigData = selectedTrackerView?.rigData || state.targetSatTrack?.rigData || {};
+        const rotatorData = selectedTrackerView?.rotatorData || state.targetSatTrack?.rotatorData || {};
         return {
             rigConnected: Boolean(rigData.connected),
             rigTracking: Boolean(rigData.tracking),
@@ -115,8 +127,6 @@ const HardwareSettingsPopover = () => {
         setAnchorEl(null);
         setActiveIcon(null);
     };
-
-    const open = Boolean(anchorEl);
 
     // Determine colors based on connection and tracking status
     const getRigColor = () => {
@@ -233,15 +243,256 @@ const HardwareSettingsPopover = () => {
 
     const rotatorOverlay = getRotatorOverlay();
     const rigOverlay = getRigOverlay();
+    const rotatorNameById = React.useMemo(() => {
+        const entries = Array.isArray(rotators) ? rotators : [];
+        return entries.reduce((acc, rotator) => {
+            const id = rotator?.id;
+            if (id == null) return acc;
+            acc[String(id)] = rotator?.name || String(id);
+            return acc;
+        }, {});
+    }, [rotators]);
 
-    // Render the appropriate component based on activeIcon
-    const renderActiveComponent = () => {
-        if (activeIcon === 'rotator') {
-            return <RotatorControl />;
-        } else if (activeIcon === 'rig') {
-            return <RigControl />;
+    const fleetRows = React.useMemo(() => {
+        return trackerInstances.map((instance, index) => {
+            const instanceTrackerId = instance?.tracker_id || '';
+            const view = trackerViews?.[instanceTrackerId] || {};
+            const trackingState = view?.trackingState || instance?.tracking_state || {};
+            const rotatorData = view?.rotatorData || {};
+            const rigData = view?.rigData || {};
+            const targetNumber = Number(instance?.target_number || (index + 1));
+            const command = trackerCommandsById?.[instanceTrackerId] || null;
+            const commandBusy = Boolean(
+                command
+                && [TRACKER_COMMAND_STATUS.SUBMITTED, TRACKER_COMMAND_STATUS.STARTED].includes(command.status)
+            );
+            return {
+                trackerId: instanceTrackerId,
+                targetNumber,
+                satName: view?.satelliteData?.details?.name || 'No satellite',
+                satNorad: trackingState?.norad_id || 'none',
+                rotatorId: trackingState?.rotator_id || instance?.rotator_id || 'none',
+                rotatorName: rotatorNameById[String(trackingState?.rotator_id || instance?.rotator_id || '')] || 'No rotator',
+                rigId: trackingState?.rig_id || 'none',
+                trackingState,
+                rotatorData,
+                rigData,
+                commandBusy,
+                isActive: instanceTrackerId === trackerId,
+            };
+        });
+    }, [trackerInstances, trackerViews, trackerCommandsById, trackerId, rotatorNameById]);
+
+    const submitQuickAction = useCallback(async (row, nextState) => {
+        if (!row?.trackerId) return;
+        setRowErrors((prev) => ({ ...prev, [row.trackerId]: null }));
+        dispatch(setTrackerId(row.trackerId));
+        try {
+            await dispatch(setTrackingStateInBackend({
+                socket,
+                data: {
+                    ...row.trackingState,
+                    tracker_id: row.trackerId,
+                    ...nextState,
+                },
+            })).unwrap();
+        } catch (error) {
+            const message = error?.message || error?.error || 'Action failed';
+            setRowErrors((prev) => ({ ...prev, [row.trackerId]: String(message) }));
+            window.setTimeout(() => {
+                setRowErrors((prev) => {
+                    if (!prev?.[row.trackerId]) return prev;
+                    const next = { ...prev };
+                    delete next[row.trackerId];
+                    return next;
+                });
+            }, 4000);
         }
-        return null;
+    }, [dispatch, socket]);
+
+    const renderCompactFleetPanel = () => {
+        const isRotatorPanel = activeIcon === 'rotator';
+        const panelTitle = isRotatorPanel ? 'Rotator Quick Actions' : 'Rig Quick Actions';
+        const actionButtonSx = {
+            minWidth: 30,
+            px: 0.6,
+            borderColor: 'divider',
+            '&.Mui-disabled': {
+                borderColor: 'action.disabledBackground',
+                color: 'action.disabled',
+            },
+        };
+        return (
+            <Box sx={{ p: 0.9 }}>
+                <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', fontSize: '12px' }}>
+                    {panelTitle}
+                </Typography>
+                <Stack spacing={0.65} sx={{ mt: 0.7 }}>
+                    {fleetRows.map((row) => {
+                        const statusLabel = isRotatorPanel
+                            ? (row.rotatorData?.tracking ? 'Tracking' : (row.rotatorData?.connected ? 'Connected' : 'Disconnected'))
+                            : (row.rigData?.tracking ? 'Tracking' : (row.rigData?.connected ? 'Connected' : 'Disconnected'));
+                        const actionState = (() => {
+                            const hasTarget = !['', 'none', null, undefined].includes(row.satNorad);
+                            if (isRotatorPanel) {
+                                const connectedNow = Boolean(row.rotatorData?.connected);
+                                const trackingNow = Boolean(row.rotatorData?.tracking);
+                                const canConnect = !row.commandBusy && !connectedNow && !['', 'none'].includes(row.rotatorId);
+                                const canTrack = !row.commandBusy && connectedNow && !trackingNow && hasTarget;
+                                const canStop = !row.commandBusy && trackingNow;
+                                const canDisconnect = !row.commandBusy && connectedNow && !trackingNow;
+                                return {
+                                    connect: { enabled: canConnect, reason: canConnect ? 'Connect' : (['', 'none'].includes(row.rotatorId) ? 'No rotator assigned' : (connectedNow ? 'Already connected' : (row.commandBusy ? 'Command in progress' : 'Unavailable'))) },
+                                    track: { enabled: canTrack, reason: canTrack ? 'Track' : (!connectedNow ? 'Connect first' : (!hasTarget ? 'No target selected' : (trackingNow ? 'Already tracking' : (row.commandBusy ? 'Command in progress' : 'Unavailable')))) },
+                                    stop: { enabled: canStop, reason: canStop ? 'Stop' : (trackingNow ? 'Stop' : (row.commandBusy ? 'Command in progress' : 'Not tracking')) },
+                                    disconnect: { enabled: canDisconnect, reason: canDisconnect ? 'Disconnect' : (trackingNow ? 'Stop tracking first' : (!connectedNow ? 'Already disconnected' : (row.commandBusy ? 'Command in progress' : 'Unavailable'))) },
+                                };
+                            }
+                            const connectedNow = Boolean(row.rigData?.connected);
+                            const trackingNow = Boolean(row.rigData?.tracking);
+                            const hasTransmitter = !['', 'none', null, undefined].includes(row.trackingState?.transmitter_id);
+                            const canConnect = !row.commandBusy && !connectedNow && !['', 'none'].includes(row.rigId);
+                            const canTrack = !row.commandBusy && connectedNow && !trackingNow && hasTarget && hasTransmitter;
+                            const canStop = !row.commandBusy && trackingNow;
+                            const canDisconnect = !row.commandBusy && connectedNow && !trackingNow;
+                            return {
+                                connect: { enabled: canConnect, reason: canConnect ? 'Connect' : (['', 'none'].includes(row.rigId) ? 'No rig assigned' : (connectedNow ? 'Already connected' : (row.commandBusy ? 'Command in progress' : 'Unavailable'))) },
+                                track: { enabled: canTrack, reason: canTrack ? 'Track' : (!connectedNow ? 'Connect first' : (!hasTarget ? 'No target selected' : (!hasTransmitter ? 'No transmitter selected' : (trackingNow ? 'Already tracking' : (row.commandBusy ? 'Command in progress' : 'Unavailable'))))) },
+                                stop: { enabled: canStop, reason: canStop ? 'Stop' : (trackingNow ? 'Stop' : (row.commandBusy ? 'Command in progress' : 'Not tracking')) },
+                                disconnect: { enabled: canDisconnect, reason: canDisconnect ? 'Disconnect' : (trackingNow ? 'Stop tracking first' : (!connectedNow ? 'Already disconnected' : (row.commandBusy ? 'Command in progress' : 'Unavailable'))) },
+                            };
+                        })();
+                        const az = Number.isFinite(Number(row.rotatorData?.az)) ? Number(row.rotatorData.az).toFixed(1) : 'N/A';
+                        const el = Number.isFinite(Number(row.rotatorData?.el)) ? Number(row.rotatorData.el).toFixed(1) : 'N/A';
+                        return (
+                            <Box key={row.trackerId}>
+                                <FleetTargetRow
+                                    targetNumber={row.targetNumber}
+                                    trackingActive={Boolean(row.rigData?.tracking || row.rotatorData?.tracking)}
+                                    satName={row.satName}
+                                    satNorad={row.satNorad}
+                                    elevation={null}
+                                    isActive={false}
+                                    onFocus={() => dispatch(setTrackerId(row.trackerId))}
+                                    onOpenConsole={() => {
+                                        dispatch(setTrackerId(row.trackerId));
+                                        navigate('/track');
+                                        handleClose();
+                                    }}
+                                    extraMeta={(
+                                        <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', gap: 1 }}>
+                                            <Typography
+                                                variant="caption"
+                                                color="text.secondary"
+                                                sx={{
+                                                    minWidth: 0,
+                                                    overflow: 'hidden',
+                                                    textOverflow: 'ellipsis',
+                                                    whiteSpace: 'nowrap',
+                                                    fontSize: '11px',
+                                                    lineHeight: 1.25,
+                                                }}
+                                            >
+                                                {row.rotatorName}
+                                            </Typography>
+                                            <Typography
+                                                variant="caption"
+                                                sx={{
+                                                    marginLeft: 'auto',
+                                                    color: 'text.secondary',
+                                                    fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                                                    fontFeatureSettings: '"tnum" 1',
+                                                    whiteSpace: 'nowrap',
+                                                    textAlign: 'right',
+                                                    fontSize: '12px',
+                                                    lineHeight: 1.25,
+                                                }}
+                                            >
+                                                Az {az}° El {el}°
+                                            </Typography>
+                                        </Box>
+                                    )}
+                                    statusChip={(
+                                        <Chip
+                                            size="small"
+                                            label={statusLabel}
+                                            color={statusLabel === 'Tracking' ? 'success' : (statusLabel === 'Connected' ? 'info' : 'default')}
+                                            variant={statusLabel === 'Disconnected' ? 'outlined' : 'filled'}
+                                            sx={{ '& .MuiChip-label': { fontSize: '11px' } }}
+                                        />
+                                    )}
+                                    actions={(
+                                        <Stack direction="row" spacing={0.5}>
+                                        <Tooltip title={actionState.connect.reason}>
+                                            <span>
+                                                <Button
+                                                    size="small"
+                                                    variant="outlined"
+                                                    color="success"
+                                                    disabled={!actionState.connect.enabled}
+                                                    onClick={() => submitQuickAction(row, isRotatorPanel ? { rotator_state: 'connected' } : { rig_state: 'connected' })}
+                                                    sx={actionButtonSx}
+                                                >
+                                                    <LinkIcon fontSize="small" />
+                                                </Button>
+                                            </span>
+                                        </Tooltip>
+                                        <Tooltip title={actionState.track.reason}>
+                                            <span>
+                                                <Button
+                                                    size="small"
+                                                    variant="outlined"
+                                                    color="info"
+                                                    disabled={!actionState.track.enabled}
+                                                    onClick={() => submitQuickAction(row, isRotatorPanel ? { rotator_state: 'tracking' } : { rig_state: 'tracking' })}
+                                                    sx={actionButtonSx}
+                                                >
+                                                    <TrackChangesIcon fontSize="small" />
+                                                </Button>
+                                            </span>
+                                        </Tooltip>
+                                        <Tooltip title={actionState.stop.reason}>
+                                            <span>
+                                                <Button
+                                                    size="small"
+                                                    variant="outlined"
+                                                    color="warning"
+                                                    disabled={!actionState.stop.enabled}
+                                                    onClick={() => submitQuickAction(row, isRotatorPanel ? { rotator_state: 'stopped' } : { rig_state: 'stopped' })}
+                                                    sx={actionButtonSx}
+                                                >
+                                                    <StopCircleOutlinedIcon fontSize="small" />
+                                                </Button>
+                                            </span>
+                                        </Tooltip>
+                                        <Tooltip title={actionState.disconnect.reason}>
+                                            <span>
+                                                <Button
+                                                    size="small"
+                                                    variant="outlined"
+                                                    color="error"
+                                                    disabled={!actionState.disconnect.enabled}
+                                                    onClick={() => submitQuickAction(row, isRotatorPanel ? { rotator_state: 'disconnected' } : { rig_state: 'disconnected' })}
+                                                    sx={actionButtonSx}
+                                                >
+                                                    <LinkOffIcon fontSize="small" />
+                                                </Button>
+                                            </span>
+                                        </Tooltip>
+                                        </Stack>
+                                    )}
+                                />
+                                {rowErrors?.[row.trackerId] && (
+                                    <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.35 }}>
+                                        {rowErrors[row.trackerId]}
+                                    </Typography>
+                                )}
+                            </Box>
+                        );
+                    })}
+                </Stack>
+            </Box>
+        );
     };
 
     return (<>
@@ -322,7 +573,7 @@ const HardwareSettingsPopover = () => {
                 width: 340,
                 backgroundColor: 'background.paper',
             }}>
-                {renderActiveComponent()}
+                {renderCompactFleetPanel()}
             </Box>
         </Popover>
     </>);

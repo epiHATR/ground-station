@@ -27,10 +27,14 @@ import {
     setSatelliteGroupSelectOpen,
     setSatelliteSelectOpen,
     setSatelliteId,
+    setTrackerId,
+    setRotator,
     setTrackingStateInBackend,
     setAvailableTransmitters,
 } from './target-slice.jsx';
 import {useSocket} from "../common/socket.jsx";
+import { useTargetRotatorSelectionDialog } from './use-target-rotator-selection-dialog.jsx';
+import { toast } from "../../utils/toast-with-timestamp.jsx";
 
 
 function SatelliteList() {
@@ -53,6 +57,7 @@ function SatelliteList() {
         selectedTransmitter,
         availableTransmitters,
     } = useSelector((state) => state.targetSatTrack);
+    const { requestRotatorForTarget, dialog: rotatorSelectionDialog } = useTargetRotatorSelectionDialog();
 
     function getTransmittersForSatelliteId(satelliteId) {
         if (satelliteId && groupOfSats.length > 0) {
@@ -66,25 +71,38 @@ function SatelliteList() {
         return [];
     }
 
-    function setTargetSatellite(eventOrSatelliteId) {
+    async function setTargetSatellite(eventOrSatelliteId) {
         // Determine the satelliteId based on the input type
         const satelliteId = typeof eventOrSatelliteId === 'object'
             ? eventOrSatelliteId.target.value
             : eventOrSatelliteId;
+        const selectedSatellite = groupOfSats.find((sat) => String(sat.norad_id) === String(satelliteId));
+        const selectedAssignment = await requestRotatorForTarget(selectedSatellite?.name);
+        if (!selectedAssignment) {
+            return;
+        }
+        const { rotatorId, trackerId } = selectedAssignment;
 
         dispatch(setSatelliteId(satelliteId));
+        dispatch(setRotator(rotatorId));
+        dispatch(setTrackerId(trackerId));
         dispatch(setAvailableTransmitters(getTransmittersForSatelliteId(satelliteId)));
 
         // Set the tracking state in the backend to the new norad id and leave the state as is
         const data = {
             ...trackingState,
+            tracker_id: trackerId,
             norad_id: satelliteId,
             group_id: groupId,
             rig_id: selectedRadioRig,
-            rotator_id: selectedRotator,
+            rotator_id: rotatorId,
             transmitter_id: selectedTransmitter,
         };
-        dispatch(setTrackingStateInBackend({socket, data: data}));
+        try {
+            await dispatch(setTrackingStateInBackend({ socket, data })).unwrap();
+        } catch (error) {
+            toast.error(error?.message || 'Failed to set target');
+        }
     }
 
     const handleSelectOpenEvent = (event) => {
@@ -96,6 +114,8 @@ function SatelliteList() {
     };
 
     return (
+        <>
+        {rotatorSelectionDialog}
         <FormControl
             disabled={trackingState['rotator_state'] === "tracking" || trackingState['rig_state'] === "tracking"}
             sx={{ margin: 0 }}
@@ -114,6 +134,7 @@ function SatelliteList() {
                 })}
             </Select>
         </FormControl>
+        </>
     );
 }
 

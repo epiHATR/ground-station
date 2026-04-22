@@ -67,7 +67,7 @@ from common.logger import logger
 from handlers.entities.filebrowser import emit_file_browser_state
 from hardware.soapysdrbrowser import update_discovered_servers
 from tlesync.state import sync_state_manager
-from tracker.runner import get_tracker_manager
+from tracker.runner import get_all_tracker_managers
 
 
 class TaskStatus(Enum):
@@ -527,7 +527,7 @@ class BackgroundTaskManager:
             ):
                 task_info.tracker_notified = True
                 try:
-                    manager = get_tracker_manager()
+                    managers = get_all_tracker_managers()
 
                     satellite_norad_ids = {
                         sat.get("norad_id")
@@ -564,7 +564,8 @@ class BackgroundTaskManager:
                     all_norad_ids.update(transmitter_norad_ids)
 
                     for norad_id in sorted(all_norad_ids):
-                        await manager.notify_tracking_inputs_from_db(norad_id)
+                        for manager in managers.values():
+                            await manager.notify_tracking_inputs_from_db(norad_id)
 
                 except Exception as e:
                     logger.debug(f"Failed to notify tracker manager after TLE sync: {e}")

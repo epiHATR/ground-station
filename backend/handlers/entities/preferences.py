@@ -20,7 +20,7 @@ from typing import Any, Dict, Optional, Union
 import crud
 from db import AsyncSessionLocal
 from handlers.entities.tracking import emit_tracker_data, emit_ui_tracker_values
-from tracker.runner import get_tracker_manager
+from tracker.runner import get_all_tracker_managers
 
 
 async def fetch_preferences(
@@ -117,10 +117,11 @@ async def set_map_settings(
         # Tracker/UI tracker updates are only relevant for target-map-settings.
         # Avoid unnecessary tracking-state DB load for unrelated map setting keys.
         if data and data.get("name") == "target-map-settings":
-            await emit_tracker_data(dbsession, sio, logger)
-            await emit_ui_tracker_values(dbsession, sio, logger)
-            manager = get_tracker_manager()
-            manager.notify_map_settings_changed(data.get("value", {}))
+            managers = get_all_tracker_managers()
+            for tracker_id, manager in managers.items():
+                await emit_tracker_data(dbsession, sio, logger, tracker_id=tracker_id)
+                await emit_ui_tracker_values(dbsession, sio, logger, tracker_id=tracker_id)
+                manager.notify_map_settings_changed(data.get("value", {}))
 
         return {
             "success": True,

@@ -36,6 +36,8 @@ import {
     fetchSatellitesByGroupId,
     setSatGroupId,
     setSatelliteId,
+    setTrackerId,
+    setRotator,
     setTrackingStateInBackend,
     setStarting, setAvailableTransmitters,
 } from './target-slice.jsx';
@@ -45,6 +47,7 @@ import { toast } from "../../utils/toast-with-timestamp.jsx";
 import Autocomplete from "@mui/material/Autocomplete";
 import CircularProgress from "@mui/material/CircularProgress";
 import SatelliteSearchAutocomplete from "./satellite-search.jsx";
+import { useTargetRotatorSelectionDialog } from './use-target-rotator-selection-dialog.jsx';
 
 
 const SatSelectorIsland = React.memo(function SatSelectorIsland({initialNoradId, initialGroupId}) {
@@ -53,7 +56,6 @@ const SatSelectorIsland = React.memo(function SatSelectorIsland({initialNoradId,
     const { t } = useTranslation('target');
     const {
         satGroups,
-        groupId,
         loading,
         error,
         satelliteSelectOpen,
@@ -74,35 +76,29 @@ const SatSelectorIsland = React.memo(function SatSelectorIsland({initialNoradId,
 
     const { rigs } = useSelector((state) => state.rigs);
     const { rotators } = useSelector((state) => state.rotators);
+    const { requestRotatorForTarget, dialog: rotatorSelectionDialog } = useTargetRotatorSelectionDialog();
 
     useEffect(() => {
         dispatch(fetchSatelliteGroups({ socket }));
     }, [dispatch, socket]);
 
     useEffect(() => {
-        if (satGroups.some(group => group.id === initialGroupId)) {
-            fetchSatellitesByGroupId(initialGroupId);
+        if (!initialGroupId) {
+            return;
+        }
+        if (!satGroups.some((group) => group.id === initialGroupId)) {
+            return;
         }
 
-        return () => {
-
-        };
-    }, [satGroups]);
-
-    useEffect(() => {
-        // If the known group list includes initialGroupId, set it and fetch group satellites
-        if (satGroups.some((group) => group.id === initialGroupId)) {
-            dispatch(setSatGroupId(initialGroupId));
-            dispatch(
-                fetchSatellitesByGroupId({
-                    socket,
-                    groupId: groupId,
-                })
-            );
-            // Optionally set it in Redux right away
-            if (initialNoradId) {
-                dispatch(setSatelliteId(initialNoradId));
-            }
+        dispatch(setSatGroupId(initialGroupId));
+        dispatch(
+            fetchSatellitesByGroupId({
+                socket,
+                groupId: initialGroupId,
+            })
+        );
+        if (initialNoradId) {
+            dispatch(setSatelliteId(initialNoradId));
         }
     }, [satGroups, initialGroupId, initialNoradId, dispatch, socket]);
 
@@ -134,25 +130,39 @@ const SatSelectorIsland = React.memo(function SatSelectorIsland({initialNoradId,
         return [];
     }
 
-    const handleSatelliteSelect = useCallback((satellite) => {
+    const handleSatelliteSelect = useCallback(async (satellite) => {
+        const selectedAssignment = await requestRotatorForTarget(satellite?.name);
+        if (!selectedAssignment) {
+            return;
+        }
+        const { rotatorId, trackerId } = selectedAssignment;
+
         dispatch(setSatelliteId(satellite.norad_id));
+        dispatch(setRotator(rotatorId));
+        dispatch(setTrackerId(trackerId));
         dispatch(setAvailableTransmitters(getTransmittersForSatelliteId(satellite.norad_id)));
 
         // set the tracking state in the backend to the new norad id and leave the state as is
         const data = {
             ...trackingState,
+            tracker_id: trackerId,
             norad_id: satellite.norad_id,
             group_id: satellite.groups[0].id,
             rig_id: selectedRadioRig,
-            rotator_id: selectedRotator,
+            rotator_id: rotatorId,
             transmitter_id: selectedTransmitter,
         };
-        dispatch(setTrackingStateInBackend({ socket, data: data}));
+        try {
+            await dispatch(setTrackingStateInBackend({ socket, data })).unwrap();
+        } catch (error) {
+            toast.error(error?.message || 'Failed to set target');
+        }
 
-    }, [dispatch]);
+    }, [dispatch, requestRotatorForTarget, trackingState, selectedRadioRig, selectedTransmitter]);
 
     return (
         <>
+            {rotatorSelectionDialog}
             <Grid container spacing={0} columns={12}>
                 <Grid size={12}>
                     <Grid size={12} style={{padding: '0rem 0rem 0.5rem 0rem'}}>

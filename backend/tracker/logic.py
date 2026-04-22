@@ -25,6 +25,7 @@ import psutil
 
 from common.arguments import arguments as args
 from common.constants import DictKeys, SocketEvents
+from tracker.contracts import require_tracker_id
 from tracker.data import compiled_satellite_data_from_inputs
 from tracker.ipc import (
     TRACKER_MSG_COMMAND,
@@ -42,6 +43,28 @@ from tracker.statemanager import StateManager
 logger = logging.getLogger("tracker-worker")
 
 
+class TrackerOutputQueueProxy:
+    """Inject tracker_id into every tracker->main process message."""
+
+    def __init__(self, queue_out: multiprocessing.Queue, tracker_id: str):
+        self._queue_out = queue_out
+        self._tracker_id = require_tracker_id(tracker_id)
+
+    def put(self, message: Dict[str, Any]):
+        if not isinstance(message, dict):
+            self._queue_out.put(message)
+            return
+
+        enriched = dict(message)
+        enriched.setdefault("tracker_id", self._tracker_id)
+        data = enriched.get(DictKeys.DATA)
+        if isinstance(data, dict):
+            data_copy = dict(data)
+            data_copy.setdefault("tracker_id", self._tracker_id)
+            enriched[DictKeys.DATA] = data_copy
+        self._queue_out.put(enriched)
+
+
 class SatelliteTracker:
     """
     Satellite tracking class that manages rotator and rig controllers
@@ -49,13 +72,18 @@ class SatelliteTracker:
     """
 
     def __init__(
-        self, queue_out: multiprocessing.Queue, queue_in: multiprocessing.Queue, stop_event=None
+        self,
+        queue_out: multiprocessing.Queue,
+        queue_in: multiprocessing.Queue,
+        stop_event=None,
+        tracker_id: str = "",
     ):
         """Initialize the satellite tracker with queues and configuration."""
         # Store queue references
         self.rotator_details: Dict[str, Any] = {}
         self.rig_details: Dict[str, Any] = {}
-        self.queue_out = queue_out
+        self.tracker_id = require_tracker_id(tracker_id)
+        self.queue_out = TrackerOutputQueueProxy(queue_out, self.tracker_id)
         self.queue_in = queue_in
         self.stop_event = stop_event
 
@@ -216,7 +244,8 @@ class SatelliteTracker:
         tracker: Dict[str, Any] = {}
 
         logger.info(
-            "Tracker process started (pid=%s, interval=%ss)",
+            "Tracker process started (tracker_id=%s pid=%s, interval=%ss)",
+            self.tracker_id,
             self.process.pid,
             interval_seconds,
         )
@@ -241,7 +270,7 @@ class SatelliteTracker:
                 self.queue_out.put(
                     {
                         "type": "stats",
-                        "tracker_id": "satellite_tracker",
+                        "tracker_id": self.tracker_id,
                         "stats": self.stats.copy(),
                         "timestamp": current_time,
                     }
@@ -464,7 +493,10 @@ class SatelliteTracker:
 
 
 async def satellite_tracking_task(
-    queue_out: multiprocessing.Queue, queue_in: multiprocessing.Queue, stop_event=None
+    queue_out: multiprocessing.Queue,
+    queue_in: multiprocessing.Queue,
+    stop_event=None,
+    tracker_id: str = "",
 ):
     """
     Wrapper function that creates and runs a SatelliteTracker instance.
@@ -486,5 +518,5 @@ async def satellite_tracking_task(
     :type stop_event: multiprocessing.Event
     :return: None
     """
-    tracker = SatelliteTracker(queue_out, queue_in, stop_event)
+    tracker = SatelliteTracker(queue_out, queue_in, stop_event, tracker_id=tracker_id)
     await tracker.run()

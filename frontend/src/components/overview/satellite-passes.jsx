@@ -67,11 +67,11 @@ import ProgressFormatter from "./progressbar-widget.jsx";
 import { useTranslation } from 'react-i18next';
 import { enUS, elGR } from '@mui/x-data-grid/locales';
 import ElevationDisplay from "../common/elevation-display.jsx";
-import GpsFixedIcon from '@mui/icons-material/GpsFixed';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SettingsIcon from '@mui/icons-material/Settings';
 import PassesTableSettingsDialog from './passes-table-settings-dialog.jsx';
 import { useUserTimeSettings } from '../../hooks/useUserTimeSettings.jsx';
+import TargetNumberIcon from '../common/target-number-icon.jsx';
 
 
 const getPassBackgroundColor = (color, theme, coefficient) => ({
@@ -105,15 +105,11 @@ const getPassStatusPriority = (status) => {
     }
 };
 
-const isPassTracked = (row, trackedSatelliteName, trackedSatelliteNoradId) => {
+const isPassTracked = (row, trackedSatelliteNoradIds = []) => {
     if (!row) return false;
-
-    if (trackedSatelliteNoradId != null && trackedSatelliteNoradId !== '') {
-        return String(row.norad_id) === String(trackedSatelliteNoradId);
-    }
-
-    if (!trackedSatelliteName) return false;
-    return row.name === trackedSatelliteName;
+    return (trackedSatelliteNoradIds || []).some(
+        (noradId) => String(row.norad_id) === String(noradId)
+    );
 };
 
 const StyledDataGrid = styled(DataGrid)(({theme}) => ({
@@ -401,8 +397,9 @@ const DurationFormatter = React.memo(function DurationFormatter({params, event_s
     }
 });
 
-const PassStatusCell = React.memo(function PassStatusCell({status, isTracked = false}) {
+const PassStatusCell = React.memo(function PassStatusCell({status, isTracked = false, targetNumber = null}) {
     const { t } = useTranslation('overview');
+    const markerSize = 17;
     const statusConfig = {
         live: {
             label: t('passes_table.status_visible'),
@@ -438,17 +435,17 @@ const PassStatusCell = React.memo(function PassStatusCell({status, isTracked = f
                 variant={status === 'upcoming' ? 'outlined' : 'filled'}
                 sx={{ fontWeight: 700, minWidth: 85 }}
             />
-            <Box sx={{ width: 14, display: 'inline-flex', justifyContent: 'center' }}>
+            <Box sx={{ minWidth: markerSize + 6, display: 'inline-flex', justifyContent: 'center', alignItems: 'center', flexShrink: 0 }}>
                 {isTracked && (
                     <Tooltip title={t('passes_table.tracked_tooltip', { defaultValue: 'Current target satellite' })}>
-                        <GpsFixedIcon
-                            aria-label={t('passes_table.status_tracked', { defaultValue: 'Tracked' })}
+                        <TargetNumberIcon
+                            targetNumber={targetNumber}
                             sx={{
-                                fontSize: '1.08rem',
-                                color: 'info.light',
                                 filter: 'brightness(1.15)',
                                 opacity: markerOpacity,
                             }}
+                            size={markerSize}
+                            iconColor="info.light"
                         />
                     </Tooltip>
                 )}
@@ -615,8 +612,8 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
     passes,
     passesLoading,
     quickFilterPreset,
-    trackedSatelliteName,
-    trackedSatelliteNoradId,
+    trackedSatelliteNoradIds,
+    targetNumberByNorad,
     onRowClick,
     onRowDoubleClick,
     passesAreCached = false,
@@ -673,7 +670,7 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
     const filteredPasses = useMemo(() => {
         const now = new Date(nowMs);
         if (quickFilterPreset === 'tracked') {
-            return passes.filter((pass) => isPassTracked(pass, trackedSatelliteName, trackedSatelliteNoradId));
+            return passes.filter((pass) => isPassTracked(pass, trackedSatelliteNoradIds));
         }
         if (quickFilterPreset === 'live') {
             return passes.filter((pass) => getPassStatus(pass, now) === 'live');
@@ -688,7 +685,7 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
             });
         }
         return passes;
-    }, [passes, quickFilterPreset, nowMs, trackedSatelliteName, trackedSatelliteNoradId]);
+    }, [passes, quickFilterPreset, nowMs, trackedSatelliteNoradIds]);
 
     const columns = useMemo(() => [
         {
@@ -704,7 +701,8 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
             renderCell: (params) => (
                 <PassStatusCell
                     status={params.value}
-                    isTracked={isPassTracked(params.row, trackedSatelliteName, trackedSatelliteNoradId)}
+                    isTracked={isPassTracked(params.row, trackedSatelliteNoradIds)}
+                    targetNumber={targetNumberByNorad?.[String(params.row.norad_id)] ?? null}
                 />
             )
         },
@@ -897,7 +895,7 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
             },
             hide: true,
         },
-    ], [t, selectedSatellitePositionsRef, trackedSatelliteName, trackedSatelliteNoradId]);
+    ], [t, selectedSatellitePositionsRef, trackedSatelliteNoradIds, targetNumberByNorad]);
 
     const effectiveColumnVisibility = useMemo(() => {
         const base = {
@@ -930,7 +928,7 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
             const eventStart = new Date(param.row.event_start);
             const status = getPassStatus(param.row, now);
             const classes = ['pointer-cursor'];
-            if (isPassTracked(param.row, trackedSatelliteName, trackedSatelliteNoradId)) {
+            if (isPassTracked(param.row, trackedSatelliteNoradIds)) {
                 classes.push('passes-row-tracked');
             }
             if (status === 'dead') classes.push('passes-row-dead');
@@ -940,7 +938,7 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
             return classes.join(' ');
         }
         return "pointer-cursor";
-    }, [trackedSatelliteName, trackedSatelliteNoradId]);
+    }, [trackedSatelliteNoradIds]);
 
     const getRowId = useCallback((params) => params.id, []);
 
@@ -1011,8 +1009,8 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
     return (
         prevProps.passes === nextProps.passes &&
         prevProps.quickFilterPreset === nextProps.quickFilterPreset &&
-        prevProps.trackedSatelliteName === nextProps.trackedSatelliteName &&
-        prevProps.trackedSatelliteNoradId === nextProps.trackedSatelliteNoradId &&
+        prevProps.trackedSatelliteNoradIds === nextProps.trackedSatelliteNoradIds &&
+        prevProps.targetNumberByNorad === nextProps.targetNumberByNorad &&
         prevProps.passesLoading === nextProps.passesLoading &&
         prevProps.orbitProjectionDuration === nextProps.orbitProjectionDuration &&
         prevProps.pageSize === nextProps.pageSize &&
@@ -1049,7 +1047,7 @@ const NextPassesGroupIsland = React.memo(function NextPassesGroupIsland() {
         openPassesTableSettingsDialog,
         selectedSatellites
     } = useSelector(state => state.overviewSatTrack);
-    const targetSatTrack = useSelector(state => state.targetSatTrack);
+    const trackerInstances = useSelector((state) => state.trackerInstances?.instances || []);
     const { location } = useSelector(state => state.location);
 
     const minHeight = 200;
@@ -1058,8 +1056,35 @@ const NextPassesGroupIsland = React.memo(function NextPassesGroupIsland() {
     const hasLoadedFromStorageRef = useRef(false);
     const isLoadingRef = useRef(false);
     const [quickFilterPreset, setQuickFilterPreset] = useState('all');
-    const trackedSatelliteName = targetSatTrack?.satelliteData?.details?.name || null;
-    const trackedSatelliteNoradId = targetSatTrack?.satelliteData?.details?.norad_id ?? targetSatTrack?.trackingState?.norad_id ?? null;
+    const trackedSatelliteNoradIds = useMemo(() => {
+        return trackerInstances
+            .filter((instance) => {
+                const groupId = instance?.tracking_state?.group_id;
+                if (!selectedSatGroupId || !groupId) return true;
+                return String(groupId) === String(selectedSatGroupId);
+            })
+            .map((instance) => instance?.tracking_state?.norad_id)
+            .filter((noradId) => noradId != null);
+    }, [trackerInstances, selectedSatGroupId]);
+    const targetNumberByNorad = useMemo(() => {
+        const mapping = {};
+        trackerInstances.forEach((instance, index) => {
+            const groupId = instance?.tracking_state?.group_id;
+            if (selectedSatGroupId && groupId && String(groupId) !== String(selectedSatGroupId)) {
+                return;
+            }
+            const noradId = instance?.tracking_state?.norad_id;
+            if (noradId == null) {
+                return;
+            }
+            const key = String(noradId);
+            const targetNumber = Number(instance?.target_number || (index + 1));
+            if (mapping[key] == null || targetNumber < mapping[key]) {
+                mapping[key] = targetNumber;
+            }
+        });
+        return mapping;
+    }, [trackerInstances, selectedSatGroupId]);
 
     // Load column visibility from localStorage on mount
     useEffect(() => {
@@ -1461,8 +1486,8 @@ const NextPassesGroupIsland = React.memo(function NextPassesGroupIsland() {
                         passes={passes}
                         passesLoading={Boolean(selectedSatGroupId) && (passesLoading || loadingSatellites)}
                         quickFilterPreset={quickFilterPreset}
-                        trackedSatelliteName={trackedSatelliteName}
-                        trackedSatelliteNoradId={trackedSatelliteNoradId}
+                        trackedSatelliteNoradIds={trackedSatelliteNoradIds}
+                        targetNumberByNorad={targetNumberByNorad}
                         onRowClick={handleOnRowClick}
                         onRowDoubleClick={handleOnRowDoubleClick}
                         orbitProjectionDuration={orbitProjectionDuration}

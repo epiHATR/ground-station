@@ -13,104 +13,292 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-
 import asyncio
 import logging
 import multiprocessing
+import time
+from dataclasses import dataclass
 from multiprocessing import Queue
-from typing import Optional
+from multiprocessing.synchronize import Event as MpEvent
+from typing import Any, Dict, Optional
 
 import setproctitle
 
+from tracker.contracts import require_tracker_id
 from tracker.logic import SatelliteTracker
 from tracker.manager import TrackerManager
 
 logger = logging.getLogger("tracker-worker")
 
-# Some globals for the tracker process
-tracker_process = multiprocessing.Process()
-queue_to_tracker: Queue = multiprocessing.Queue()
-queue_from_tracker: Queue = multiprocessing.Queue()
-tracker_stop_event = multiprocessing.Event()
 
-# Singleton TrackerManager instance
-_tracker_manager: Optional[TrackerManager] = None
+@dataclass
+class TrackerRuntime:
+    tracker_id: str
+    process: multiprocessing.Process
+    queue_to_tracker: Queue
+    stop_event: MpEvent
 
 
-def start_tracker_process():
-    """
-    Starts the satellite tracking task in a separate process using multiprocessing.
+class TrackerSupervisor:
+    def __init__(self):
+        self.output_queue: Queue = multiprocessing.Queue()
+        self.runtimes: Dict[str, TrackerRuntime] = {}
+        self.managers: Dict[str, TrackerManager] = {}
+        self.tracker_rotator_map: Dict[str, str] = {}
+        self.rotator_tracker_map: Dict[str, str] = {}
+        self.tracker_target_number_map: Dict[str, int] = {}
+        self._next_target_number: int = 1
 
-    This function creates the necessary queues for communication between the main process
-    and the tracker process, and handles the lifecycle of the tracker process using the
-    new SatelliteTracker class.
+    def _ensure_target_number(self, tracker_id: str) -> int:
+        normalized_tracker_id = require_tracker_id(tracker_id)
+        existing_number = self.tracker_target_number_map.get(normalized_tracker_id)
+        if existing_number is not None:
+            return existing_number
+        target_number = self._next_target_number
+        self._next_target_number += 1
+        self.tracker_target_number_map[normalized_tracker_id] = target_number
+        return target_number
 
-    :return: A tuple containing (process, queue_in, queue_out, tracker_stop_event)
-    """
+    @staticmethod
+    def _normalize_rotator_id(candidate: Optional[str]) -> Optional[str]:
+        if candidate is None:
+            return None
+        normalized = str(candidate).strip()
+        if not normalized or normalized == "none":
+            return None
+        return normalized
 
-    global tracker_process, queue_to_tracker, queue_from_tracker, tracker_stop_event
+    def _build_process(self, tracker_id: str, queue_to_tracker: Queue, stop_event: MpEvent):
+        normalized_id = require_tracker_id(tracker_id)
 
-    # Define the process target function that will run the async tracking task
-    def run_tracking_task():
-        # Set the process title for system monitoring tools
-        setproctitle.setproctitle("Ground Station - SatelliteTracker")
+        def run_tracking_task():
+            title = f"Ground Station - SatelliteTracker[{normalized_id}]"
+            setproctitle.setproctitle(title)
+            multiprocessing.current_process().name = title
 
-        # Set the multiprocessing process name
-        multiprocessing.current_process().name = "Ground Station - SatelliteTracker"
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                tracker = SatelliteTracker(
+                    queue_out=self.output_queue,
+                    queue_in=queue_to_tracker,
+                    stop_event=stop_event,
+                    tracker_id=normalized_id,
+                )
+                loop.run_until_complete(tracker.run())
+            except Exception as e:
+                logger.error("Error in tracker process '%s': %s", normalized_id, e)
+                logger.exception(e)
+            finally:
+                loop.close()
 
-        # Create a new event loop for this process
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        return multiprocessing.Process(
+            target=run_tracking_task, name="Ground Station - SatelliteTracker"
+        )
+
+    def start_tracker(self, tracker_id: str) -> TrackerRuntime:
+        normalized_id = require_tracker_id(tracker_id)
+        self._ensure_target_number(normalized_id)
+        existing = self.runtimes.get(normalized_id)
+        if existing and existing.process.is_alive():
+            return existing
+
+        queue_to_tracker: Queue = multiprocessing.Queue()
+        stop_event = multiprocessing.Event()
+        process = self._build_process(normalized_id, queue_to_tracker, stop_event)
+        process.start()
+
+        runtime = TrackerRuntime(
+            tracker_id=normalized_id,
+            process=process,
+            queue_to_tracker=queue_to_tracker,
+            stop_event=stop_event,
+        )
+        self.runtimes[normalized_id] = runtime
+
+        logger.info("Started tracker process '%s' with PID %s", normalized_id, process.pid)
+
+        manager = self.managers.get(normalized_id)
+        if manager is None:
+            manager = TrackerManager(queue_to_tracker=queue_to_tracker, tracker_id=normalized_id)
+            self.managers[normalized_id] = manager
+        else:
+            manager.queue_to_tracker = queue_to_tracker
+
+        return runtime
+
+    def stop_tracker(self, tracker_id: str, timeout: float = 3.0) -> None:
+        normalized_id = require_tracker_id(tracker_id)
+        runtime = self.runtimes.get(normalized_id)
+        if not runtime:
+            return
 
         try:
-            # Create and run the SatelliteTracker instance
-            tracker = SatelliteTracker(queue_from_tracker, queue_to_tracker, tracker_stop_event)
-            loop.run_until_complete(tracker.run())
-
-        except Exception as e:
-            logger.error(f"Error in tracker process: {e}")
-            logger.exception(e)
+            if runtime.process and runtime.process.is_alive():
+                runtime.stop_event.set()
+                runtime.process.join(timeout=timeout)
+                if runtime.process.is_alive():
+                    runtime.process.kill()
+                    runtime.process.join()
         finally:
-            loop.close()
+            self.runtimes.pop(normalized_id, None)
+            self.assign_rotator(normalized_id, None)
 
-    # Create and start the process
-    tracker_process = multiprocessing.Process(
-        target=run_tracking_task, name="Ground Station - SatelliteTracker"
-    )
+    def stop_all(self, timeout: float = 3.0) -> None:
+        for tracker_id in list(self.runtimes.keys()):
+            self.stop_tracker(tracker_id, timeout=timeout)
 
-    # Start the process (not daemon - we want proper cleanup)
-    tracker_process.start()
+    def get_runtime(self, tracker_id: str) -> Optional[TrackerRuntime]:
+        return self.runtimes.get(require_tracker_id(tracker_id))
 
-    logger.info(
-        f"Started satellite tracker process 'SatelliteTracker' with PID {tracker_process.pid}"
-    )
+    def get_or_create_manager(self, tracker_id: str) -> TrackerManager:
+        normalized_id = require_tracker_id(tracker_id)
+        runtime = self.get_runtime(normalized_id)
+        if runtime is None or not runtime.process.is_alive():
+            runtime = self.start_tracker(normalized_id)
 
-    # Initialize the tracker manager singleton
-    global _tracker_manager
-    _tracker_manager = TrackerManager(queue_to_tracker=queue_to_tracker)
-    logger.info("Initialized TrackerManager singleton")
+        manager = self.managers.get(normalized_id)
+        if manager is None:
+            manager = TrackerManager(
+                queue_to_tracker=runtime.queue_to_tracker,
+                tracker_id=normalized_id,
+            )
+            self.managers[normalized_id] = manager
+        else:
+            manager.queue_to_tracker = runtime.queue_to_tracker
+        return manager
 
-    return tracker_process, queue_to_tracker, queue_from_tracker, tracker_stop_event
+    def get_all_tracker_ids(self) -> list[str]:
+        return sorted(self.runtimes.keys())
+
+    def is_alive(self, tracker_id: str) -> bool:
+        runtime = self.get_runtime(tracker_id)
+        return bool(runtime and runtime.process and runtime.process.is_alive())
+
+    def get_managers(self) -> Dict[str, TrackerManager]:
+        return dict(self.managers)
+
+    def assign_rotator(self, tracker_id: str, rotator_id: Optional[str]) -> Dict[str, Any]:
+        normalized_tracker_id = require_tracker_id(tracker_id)
+        self._ensure_target_number(normalized_tracker_id)
+        normalized_rotator_id = self._normalize_rotator_id(rotator_id)
+        previous_rotator_id = self.tracker_rotator_map.get(normalized_tracker_id)
+
+        if previous_rotator_id == normalized_rotator_id:
+            return {
+                "success": True,
+                "tracker_id": normalized_tracker_id,
+                "rotator_id": normalized_rotator_id,
+                "previous_rotator_id": previous_rotator_id,
+            }
+
+        if normalized_rotator_id:
+            owner_tracker_id = self.rotator_tracker_map.get(normalized_rotator_id)
+            if owner_tracker_id and owner_tracker_id != normalized_tracker_id:
+                return {
+                    "success": False,
+                    "error": "rotator_in_use",
+                    "tracker_id": normalized_tracker_id,
+                    "rotator_id": normalized_rotator_id,
+                    "owner_tracker_id": owner_tracker_id,
+                    "previous_rotator_id": previous_rotator_id,
+                }
+
+        if previous_rotator_id:
+            self.rotator_tracker_map.pop(previous_rotator_id, None)
+
+        if normalized_rotator_id:
+            self.rotator_tracker_map[normalized_rotator_id] = normalized_tracker_id
+            self.tracker_rotator_map[normalized_tracker_id] = normalized_rotator_id
+        else:
+            self.tracker_rotator_map.pop(normalized_tracker_id, None)
+
+        return {
+            "success": True,
+            "tracker_id": normalized_tracker_id,
+            "rotator_id": normalized_rotator_id,
+            "previous_rotator_id": previous_rotator_id,
+        }
+
+    def get_assigned_rotator(self, tracker_id: str) -> Optional[str]:
+        return self.tracker_rotator_map.get(require_tracker_id(tracker_id))
+
+    def get_instances_payload(self) -> Dict[str, Any]:
+        tracker_ids = sorted(
+            set(self.runtimes.keys())
+            | set(self.managers.keys())
+            | set(self.tracker_rotator_map.keys())
+        )
+        instances: list[Dict[str, Any]] = []
+        for tracker_id in tracker_ids:
+            runtime = self.runtimes.get(tracker_id)
+            manager = self.managers.get(tracker_id)
+            target_number = self._ensure_target_number(tracker_id)
+            tracking_state = (
+                dict(manager.current_tracking_state)
+                if manager and manager.current_tracking_state
+                else {}
+            )
+            instances.append(
+                {
+                    "tracker_id": tracker_id,
+                    "target_number": target_number,
+                    "rotator_id": self.tracker_rotator_map.get(tracker_id),
+                    "is_alive": bool(runtime and runtime.process and runtime.process.is_alive()),
+                    "pid": runtime.process.pid if runtime and runtime.process else None,
+                    "tracking_state": tracking_state,
+                }
+            )
+
+        return {
+            "instances": instances,
+            "updated_at": time.time(),
+        }
 
 
-def get_tracker_manager() -> TrackerManager:
-    """
-    Get the singleton TrackerManager instance.
+_tracker_supervisor = TrackerSupervisor()
 
-    This provides a clean interface for controlling the satellite tracker
-    by updating the tracking state in the database.
+queue_from_tracker: Queue = _tracker_supervisor.output_queue
 
-    Returns:
-        TrackerManager: Singleton manager instance
 
-    Raises:
-        RuntimeError: If called before start_tracker_process()
+def start_tracker_process(tracker_id: str):
+    normalized_id = require_tracker_id(tracker_id)
+    runtime = _tracker_supervisor.start_tracker(normalized_id)
+    return runtime.process, runtime.queue_to_tracker, queue_from_tracker, runtime.stop_event
 
-    Example:
-        manager = get_tracker_manager()
-        await manager.update_tracking_state(norad_id=25544, rotator_state="connected")
-    """
-    global _tracker_manager
-    if _tracker_manager is None:
-        raise RuntimeError("TrackerManager not initialized. Call start_tracker_process() first.")
-    return _tracker_manager
+
+def stop_tracker_process(tracker_id: str, timeout: float = 3.0) -> None:
+    _tracker_supervisor.stop_tracker(tracker_id, timeout=timeout)
+
+
+def stop_all_tracker_processes(timeout: float = 3.0) -> None:
+    _tracker_supervisor.stop_all(timeout=timeout)
+
+
+def get_tracker_manager(tracker_id: str) -> TrackerManager:
+    manager = _tracker_supervisor.get_or_create_manager(tracker_id)
+    return manager
+
+
+def get_tracker_supervisor() -> TrackerSupervisor:
+    return _tracker_supervisor
+
+
+def assign_rotator_to_tracker(tracker_id: str, rotator_id: Optional[str]) -> Dict[str, Any]:
+    return _tracker_supervisor.assign_rotator(tracker_id, rotator_id)
+
+
+def restore_tracker_rotator_assignment(tracker_id: str, rotator_id: Optional[str]) -> None:
+    _tracker_supervisor.assign_rotator(tracker_id, rotator_id)
+
+
+def get_assigned_rotator_for_tracker(tracker_id: str) -> Optional[str]:
+    return _tracker_supervisor.get_assigned_rotator(tracker_id)
+
+
+def get_tracker_instances_payload() -> Dict[str, Any]:
+    return _tracker_supervisor.get_instances_payload()
+
+
+def get_all_tracker_managers() -> Dict[str, TrackerManager]:
+    return _tracker_supervisor.get_managers()

@@ -28,6 +28,7 @@ import { fetchSDRs } from '../components/hardware/sdr-slice.jsx';
 import { fetchTLESources } from '../components/satellites/sources-slice.jsx';
 import { fetchSatelliteGroups } from '../components/satellites/groups-slice.jsx';
 import { getTrackingStateFromBackend, getTargetMapSettings } from '../components/target/target-slice.jsx';
+import { fetchTrackerInstances } from '../components/target/tracker-instances-slice.jsx';
 import { getOverviewMapSettings } from '../components/overview/overview-slice.jsx';
 import { fetchScheduledObservations, fetchMonitoredSatellites } from '../components/scheduler/scheduler-slice.jsx';
 import {
@@ -73,7 +74,22 @@ export async function initializeAppData(socket) {
         { name: 'sdrs', run: () => store.dispatch(fetchSDRs({ socket })) },
         { name: 'tle_sources', run: () => store.dispatch(fetchTLESources({ socket })) },
         { name: 'satellite_groups', run: () => store.dispatch(fetchSatelliteGroups({ socket })) },
-        { name: 'tracking_state', run: () => store.dispatch(getTrackingStateFromBackend({ socket })) },
+        {
+            name: 'tracker_instances',
+            run: async () => {
+                const payload = await store.dispatch(fetchTrackerInstances({ socket })).unwrap();
+                const instances = Array.isArray(payload?.instances) ? payload.instances : [];
+                const trackerIds = instances
+                    .map((instance) => instance?.tracker_id)
+                    .filter((trackerId) => typeof trackerId === 'string' && trackerId.trim().length > 0);
+
+                await Promise.allSettled(
+                    trackerIds.map((trackerId) =>
+                        store.dispatch(getTrackingStateFromBackend({ socket, trackerId }))
+                    )
+                );
+            },
+        },
         { name: 'overview_map', run: () => store.dispatch(getOverviewMapSettings({ socket })) },
         { name: 'target_map', run: () => store.dispatch(getTargetMapSettings({ socket })) },
         { name: 'scheduled_observations', run: () => store.dispatch(fetchScheduledObservations({ socket })) },

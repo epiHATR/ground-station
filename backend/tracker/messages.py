@@ -20,6 +20,7 @@ import logging
 from typing import Any, Dict
 
 from common.constants import SocketEvents
+from tracker.contracts import InvalidTrackerIdError, require_tracker_id
 from tracker.runner import get_tracker_manager, queue_from_tracker
 from vfos.updates import handle_vfo_updates_for_tracking
 
@@ -46,21 +47,39 @@ async def handle_tracker_messages(sockio):
                 msg_type = message.get("type")
                 event = message.get("event")
                 data = message.get("data", {})
+                if not isinstance(data, dict):
+                    data = {}
 
                 # Handle stats messages
                 if msg_type == "stats":
                     global tracker_stats
-                    tracker_id = message.get("tracker_id", "satellite_tracker")
+                    try:
+                        tracker_id = require_tracker_id(message.get("tracker_id"))
+                    except InvalidTrackerIdError:
+                        logger.debug("Dropping stats message without tracker_id")
+                        await asyncio.sleep(0)
+                        continue
                     tracker_stats[tracker_id] = message.get("stats", {})
                 elif event:
+                    try:
+                        tracker_id = require_tracker_id(
+                            message.get("tracker_id") or data.get("tracker_id")
+                        )
+                    except InvalidTrackerIdError:
+                        logger.debug("Dropping tracker event '%s' without tracker_id", event)
+                        await asyncio.sleep(0)
+                        continue
+                    data["tracker_id"] = tracker_id
                     await sockio.emit(event, data)
+                    if event == SocketEvents.SATELLITE_TRACKING:
+                        await sockio.emit(SocketEvents.SATELLITE_TRACKING_V2, data)
 
                     # Handle VFO updates for SDR tracking
                     if event == "satellite-tracking" and data.get("rig_data"):
                         await handle_vfo_updates_for_tracking(sockio, data)
                     if event == SocketEvents.SATELLITE_TRACKING:
                         try:
-                            manager = get_tracker_manager()
+                            manager = get_tracker_manager(tracker_id)
                             status_events = manager.process_tracking_update(data)
                             for status in status_events:
                                 await sockio.emit(SocketEvents.TRACKER_COMMAND_STATUS, status)

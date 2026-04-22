@@ -94,6 +94,9 @@ const OverviewSatelliteGroupSelector = React.memo(function OverviewSatelliteGrou
     function handleOnGroupChange(event) {
         // Let's get a list of satellites for the selected group
         const satGroupId = event.target.value;
+        if (!satGroupId || satGroupId === 'none') {
+            return;
+        }
         dispatch(setSelectedSatGroupId(satGroupId));
         dispatch(fetchSatellitesByGroupId({socket, satGroupId}));
     }

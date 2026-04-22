@@ -132,6 +132,9 @@ const SatelliteGroupSelectorBar = React.memo(function SatelliteGroupSelectorBar(
 
     const handleOnGroupChange = useCallback((event) => {
         const satGroupId = event.target.value;
+        if (!satGroupId || satGroupId === 'none') {
+            return;
+        }
         dispatch(setSelectedSatGroupId(satGroupId));
         dispatch(fetchSatellitesByGroupId({ socket, satGroupId }));
     }, [dispatch, socket]);

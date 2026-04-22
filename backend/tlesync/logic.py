@@ -52,7 +52,7 @@ from tlesync.utils import (
     update_satellite_group_with_removal_detection,
     update_satellite_with_satnogs_data,
 )
-from tracker.runner import get_tracker_manager
+from tracker.runner import get_all_tracker_managers
 
 DEFAULT_SATELLITE_METADATA_URL = "http://db.satnogs.org/api/satellites/?format=json"
 DEFAULT_TRANSMITTER_METADATA_URL = "http://db.satnogs.org/api/transmitters/?format=json"
@@ -98,29 +98,33 @@ async def synchronize_satellite_data_internal(dbsession, logger, emit_callback):
         if not satellite_norad_ids and not transmitter_norad_ids:
             return
         try:
-            manager = get_tracker_manager()
-            if satellite_norad_ids:
-                for norad_id in satellite_norad_ids:
-                    try:
-                        await manager.notify_tle_updated(norad_id)
-                    except Exception as e:
-                        logger.error(
-                            "Notify tracker manager TLE failed (norad_id=%s, error=%s)",
-                            norad_id,
-                            e,
-                        )
-            if transmitter_norad_ids:
-                for norad_id in transmitter_norad_ids:
-                    try:
-                        manager.notify_transmitters_changed_with_items(
-                            norad_id, transmitters_by_norad.get(norad_id, [])
-                        )
-                    except Exception as e:
-                        logger.error(
-                            "Notify tracker manager transmitters failed (norad_id=%s, error=%s)",
-                            norad_id,
-                            e,
-                        )
+            for tracker_id, manager in get_all_tracker_managers().items():
+                if satellite_norad_ids:
+                    for norad_id in satellite_norad_ids:
+                        try:
+                            await manager.notify_tle_updated(norad_id)
+                        except Exception as e:
+                            logger.error(
+                                "Notify tracker manager TLE failed "
+                                "(tracker_id=%s norad_id=%s, error=%s)",
+                                tracker_id,
+                                norad_id,
+                                e,
+                            )
+                if transmitter_norad_ids:
+                    for norad_id in transmitter_norad_ids:
+                        try:
+                            manager.notify_transmitters_changed_with_items(
+                                norad_id, transmitters_by_norad.get(norad_id, [])
+                            )
+                        except Exception as e:
+                            logger.error(
+                                "Notify tracker manager transmitters failed "
+                                "(tracker_id=%s norad_id=%s, error=%s)",
+                                tracker_id,
+                                norad_id,
+                                e,
+                            )
         except Exception as e:
             logger.debug(f"Failed to notify tracker manager of TLE updates: {e}")
 

@@ -22,7 +22,7 @@ from db import AsyncSessionLocal
 from server import runtimestate
 from tasks.registry import get_task
 from tracker.data import compiled_satellite_data
-from tracker.runner import get_tracker_manager
+from tracker.runner import get_all_tracker_managers
 
 
 async def get_satellites(
@@ -182,8 +182,8 @@ async def submit_satellite(
 
         satellites = await crud.satellites.fetch_satellites(dbsession, None)
         if data and data.get("norad_id"):
-            manager = get_tracker_manager()
-            await manager.notify_tle_updated(data.get("norad_id"))
+            for manager in get_all_tracker_managers().values():
+                await manager.notify_tle_updated(data.get("norad_id"))
         return {
             "success": (satellites["success"] & submit_reply["success"]),
             "data": satellites.get("data", []),
@@ -217,8 +217,8 @@ async def edit_satellite(
         )
 
         satellites = await crud.satellites.fetch_satellites(dbsession, None)
-        manager = get_tracker_manager()
-        await manager.notify_tle_updated(data.get("norad_id"))
+        for manager in get_all_tracker_managers().values():
+            await manager.notify_tle_updated(data.get("norad_id"))
         return {
             "success": (satellites["success"] & edit_reply["success"]),
             "data": satellites.get("data", []),

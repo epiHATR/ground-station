@@ -15,6 +15,7 @@
 
 
 from datetime import datetime, timezone
+from typing import Any, Dict
 
 
 # Create a state manager class for satellite synchronization
@@ -28,6 +29,7 @@ class SatelliteSyncState:
         return cls._instance
 
     def reset(self):
+        self.state: Dict[str, Any]
         self.state = {
             "status": "idle",  # idle, inprogress, complete
             "progress": 0,  # 0-100 percentage
@@ -78,7 +80,7 @@ class SatelliteSyncState:
 
         return self.state
 
-    def set_state(self, new_state):
+    def set_state(self, new_state: Dict[str, Any]):
         """
         Replace the entire state with a new state object.
 

@@ -50,6 +50,9 @@ const GroupDropdown = React.memo(function GroupDropdown() {
 
     const handleGroupChange = (e) => {
         const newGroupId = e.target.value;
+        if (!newGroupId || newGroupId === 'none') {
+            return;
+        }
         dispatch(setSatGroupId(newGroupId));
         dispatch(fetchSatellitesByGroupId({ socket, groupId: newGroupId }));
         dispatch(setSatelliteId(''));

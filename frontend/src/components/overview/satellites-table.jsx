@@ -45,12 +45,12 @@ import {
 } from './overview-slice.jsx';
 import { useTranslation } from 'react-i18next';
 import { enUS, elGR } from '@mui/x-data-grid/locales';
-import GpsFixedIcon from '@mui/icons-material/GpsFixed';
 import SettingsIcon from '@mui/icons-material/Settings';
 import {useSocket} from "../common/socket.jsx";
 import { toast } from '../../utils/toast-with-timestamp.jsx';
 import SatellitesTableSettingsDialog from './satellites-table-settings-dialog.jsx';
 import IconButton from '@mui/material/IconButton';
+import TargetNumberIcon from '../common/target-number-icon.jsx';
 
 const getVisibilityState = (elevation) => {
     if (elevation == null) return 'unknown';
@@ -121,6 +121,7 @@ const MemoizedStyledDataGrid = React.memo(({
                                                onRowClick,
                                                onRowDoubleClick,
                                                selectedSatelliteId,
+                                               trackedSatelliteNoradIds = [],
                                                loadingSatellites,
                                                columnVisibility,
                                                onColumnVisibilityChange,
@@ -129,6 +130,7 @@ const MemoizedStyledDataGrid = React.memo(({
                                                onPageSizeChange,
                                                sortModel,
                                                onSortModelChange,
+                                               targetNumberByNorad = {},
                                             }) => {
     const { t, i18n } = useTranslation('overview');
     const currentLanguage = i18n.language;
@@ -138,6 +140,10 @@ const MemoizedStyledDataGrid = React.memo(({
     const [page, setPage] = useState(0);
     const { timezone, locale } = useUserTimeSettings();
     const [positionTick, setPositionTick] = useState(0);
+    const trackedIdsSet = React.useMemo(
+        () => new Set((trackedSatelliteNoradIds || []).map((id) => String(id))),
+        [trackedSatelliteNoradIds]
+    );
 
     const formatDate = useCallback((dateString) => {
         if (!dateString) return t('satellites_table.na');
@@ -194,11 +200,16 @@ const MemoizedStyledDataGrid = React.memo(({
             flex: 2,
             renderCell: (params) => {
                 if (!params || !params.row) return <Typography>-</Typography>;
-                const isTracked = selectedSatelliteId === params.row.norad_id;
+                const isTracked = trackedIdsSet.has(String(params.row.norad_id));
+                const targetNumber = targetNumberByNorad[String(params.row.norad_id)];
                 return (
                     <Box sx={{ display: 'flex', alignItems: 'center', height: '100%', width: '100%', minWidth: 0 }}>
                         {isTracked && (
-                            <GpsFixedIcon sx={{ mr: 0.5, fontSize: '1.3rem', color: 'info.main', verticalAlign: 'middle' }} />
+                            <TargetNumberIcon
+                                targetNumber={targetNumber}
+                                size={18}
+                                sx={{ mr: 0.7, verticalAlign: 'middle', flexShrink: 0 }}
+                            />
                         )}
                         <Typography
                             component="span"
@@ -406,7 +417,7 @@ const MemoizedStyledDataGrid = React.memo(({
                 return <span>{formatDate(params.value)}</span>;
             }
         }
-    ], [formatDate, selectedSatelliteId, t]);
+    ], [formatDate, trackedIdsSet, t, targetNumberByNorad]);
 
     const effectiveColumnVisibility = React.useMemo(() => {
         const base = {
@@ -518,10 +529,40 @@ const SatelliteDetailsTable = React.memo(function SatelliteDetailsTable() {
     const loadingSatellites = useSelector(state => state.overviewSatTrack.loadingSatellites);
     const selectedSatelliteId = useSelector(state => state.targetSatTrack?.satelliteData?.details?.norad_id);
     const selectedSatGroupId = useSelector(state => state.overviewSatTrack.selectedSatGroupId);
+    const trackerInstances = useSelector((state) => state.trackerInstances?.instances || []);
     const columnVisibility = useSelector(state => state.overviewSatTrack.satellitesTableColumnVisibility);
     const satellitesTablePageSize = useSelector(state => state.overviewSatTrack.satellitesTablePageSize);
     const satellitesTableSortModel = useSelector(state => state.overviewSatTrack.satellitesTableSortModel);
     const openSatellitesTableSettingsDialog = useSelector(state => state.overviewSatTrack.openSatellitesTableSettingsDialog);
+    const trackedSatelliteNoradIds = React.useMemo(() => {
+        return trackerInstances
+            .filter((instance) => {
+                const groupId = instance?.tracking_state?.group_id;
+                if (!selectedSatGroupId || !groupId) return true;
+                return String(groupId) === String(selectedSatGroupId);
+            })
+            .map((instance) => instance?.tracking_state?.norad_id)
+            .filter((noradId) => noradId != null);
+    }, [trackerInstances, selectedSatGroupId]);
+    const targetNumberByNorad = React.useMemo(() => {
+        const mapping = {};
+        trackerInstances.forEach((instance, index) => {
+            const groupId = instance?.tracking_state?.group_id;
+            if (selectedSatGroupId && groupId && String(groupId) !== String(selectedSatGroupId)) {
+                return;
+            }
+            const noradId = instance?.tracking_state?.norad_id;
+            if (noradId == null) {
+                return;
+            }
+            const key = String(noradId);
+            const targetNumber = Number(instance?.target_number || (index + 1));
+            if (mapping[key] == null || targetNumber < mapping[key]) {
+                mapping[key] = targetNumber;
+            }
+        });
+        return mapping;
+    }, [trackerInstances, selectedSatGroupId]);
 
     const minHeight = 200;
     const hasLoadedFromStorageRef = useRef(false);
@@ -761,6 +802,7 @@ const SatelliteDetailsTable = React.memo(function SatelliteDetailsTable() {
                             onRowClick={handleOnRowClick}
                             onRowDoubleClick={handleOnRowDoubleClick}
                             selectedSatelliteId={selectedSatelliteId}
+                            trackedSatelliteNoradIds={trackedSatelliteNoradIds}
                             loadingSatellites={loadingSatellites}
                             columnVisibility={columnVisibility}
                             onColumnVisibilityChange={handleColumnVisibilityChange}
@@ -769,6 +811,7 @@ const SatelliteDetailsTable = React.memo(function SatelliteDetailsTable() {
                             onPageSizeChange={handlePageSizeChange}
                             sortModel={satellitesTableSortModel}
                             onSortModelChange={handleSortModelChange}
+                            targetNumberByNorad={targetNumberByNorad}
                         />
                     )}
                 </div>

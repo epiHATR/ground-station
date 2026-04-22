@@ -28,8 +28,11 @@ class SocketEvents:
 
     # Satellite Tracking
     SATELLITE_TRACKING = "satellite-tracking"
+    SATELLITE_TRACKING_V2 = "satellite-tracking-v2"
     UI_TRACKER_STATE = "ui-tracker-state"
+    UI_TRACKER_STATE_V2 = "ui-tracker-state-v2"
     TRACKER_COMMAND_STATUS = "tracker-command-status"
+    TRACKER_INSTANCES = "tracker-instances"
 
     # SDR Events
     SDR_STATUS = "sdr-status"
@@ -82,6 +85,7 @@ class TrackingStateNames:
     """Database tracking state names"""
 
     SATELLITE_TRACKING = "satellite-tracking"
+    SATELLITE_TRACKING_PREFIX = "satellite-tracking:"
 
 
 # ============================================================================
