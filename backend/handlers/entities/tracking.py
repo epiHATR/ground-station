@@ -18,7 +18,13 @@
 from typing import Any, Dict, Optional, Union
 
 import crud
-from common.constants import RigStates, SocketEvents, TrackerCommandScopes, TrackerCommandStatus
+from common.constants import (
+    RigStates,
+    RotatorStates,
+    SocketEvents,
+    TrackerCommandScopes,
+    TrackerCommandStatus,
+)
 from db import AsyncSessionLocal
 from session.tracker import session_tracker
 from tracker.contracts import InvalidTrackerIdError, get_tracking_state_name, require_tracker_id
@@ -30,6 +36,7 @@ from tracker.runner import (
     get_tracker_instances_payload,
     get_tracker_manager,
     restore_tracker_rotator_assignment,
+    swap_rotators_between_trackers,
 )
 from tracking.events import fetch_next_events_for_satellite
 
@@ -280,6 +287,161 @@ async def set_tracking_state(
     }
 
 
+async def swap_target_rotators(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Any]:
+    payload = data or {}
+    try:
+        tracker_a_id = require_tracker_id(payload.get("tracker_a_id"))
+        tracker_b_id = require_tracker_id(payload.get("tracker_b_id"))
+    except InvalidTrackerIdError:
+        return {
+            "success": False,
+            "error": "tracker_ids_required",
+            "message": "tracker_a_id and tracker_b_id are required",
+        }
+
+    if tracker_a_id == tracker_b_id:
+        return {
+            "success": False,
+            "error": "swap_requires_two_distinct_trackers",
+            "message": "tracker_a_id and tracker_b_id must be different",
+        }
+
+    manager_a = get_tracker_manager(tracker_a_id)
+    manager_b = get_tracker_manager(tracker_b_id)
+    state_a = await manager_a.get_tracking_state() or {}
+    state_b = await manager_b.get_tracking_state() or {}
+
+    state_a_rotator = state_a.get("rotator_id")
+    state_b_rotator = state_b.get("rotator_id")
+    assigned_rotator_a = get_assigned_rotator_for_tracker(tracker_a_id)
+    assigned_rotator_b = get_assigned_rotator_for_tracker(tracker_b_id)
+    effective_rotator_a = assigned_rotator_a or state_a_rotator
+    effective_rotator_b = assigned_rotator_b or state_b_rotator
+
+    if not effective_rotator_a or effective_rotator_a == "none":
+        return {
+            "success": False,
+            "error": "swap_requires_assigned_rotators",
+            "message": f"Tracker '{tracker_a_id}' has no rotator assigned",
+            "data": {"tracker_id": tracker_a_id},
+        }
+
+    if not effective_rotator_b or effective_rotator_b == "none":
+        return {
+            "success": False,
+            "error": "swap_requires_assigned_rotators",
+            "message": f"Tracker '{tracker_b_id}' has no rotator assigned",
+            "data": {"tracker_id": tracker_b_id},
+        }
+
+    if effective_rotator_a == effective_rotator_b:
+        return {
+            "success": False,
+            "error": "swap_requires_distinct_rotators",
+            "message": "Cannot swap because both trackers already use the same rotator",
+            "data": {
+                "tracker_a_id": tracker_a_id,
+                "tracker_b_id": tracker_b_id,
+                "rotator_id": effective_rotator_a,
+            },
+        }
+
+    if state_a.get("rotator_state") != RotatorStates.DISCONNECTED:
+        return {
+            "success": False,
+            "error": "swap_requires_disconnected_rotators",
+            "message": f"Tracker '{tracker_a_id}' rotator must be disconnected before swapping",
+            "data": {
+                "tracker_id": tracker_a_id,
+                "rotator_state": state_a.get("rotator_state"),
+            },
+        }
+
+    if state_b.get("rotator_state") != RotatorStates.DISCONNECTED:
+        return {
+            "success": False,
+            "error": "swap_requires_disconnected_rotators",
+            "message": f"Tracker '{tracker_b_id}' rotator must be disconnected before swapping",
+            "data": {
+                "tracker_id": tracker_b_id,
+                "rotator_state": state_b.get("rotator_state"),
+            },
+        }
+
+    logger.info(
+        "Swapping rotators between trackers (requester_sid=%s, tracker_a_id=%s, tracker_b_id=%s, "
+        "tracker_a_rotator_id=%s, tracker_b_rotator_id=%s)",
+        sid,
+        tracker_a_id,
+        tracker_b_id,
+        effective_rotator_a,
+        effective_rotator_b,
+    )
+
+    swap_result = swap_rotators_between_trackers(tracker_a_id, tracker_b_id)
+    if not swap_result.get("success"):
+        return {
+            "success": False,
+            "error": "swap_failed",
+            "message": "Failed to swap rotator ownership",
+            "data": swap_result,
+        }
+
+    update_a_result = await manager_a.update_tracking_state(rotator_id=effective_rotator_b)
+    if not update_a_result.get("success"):
+        logger.error(
+            "Failed persisting swapped rotator for tracker '%s'; rolling back ownership maps",
+            tracker_a_id,
+        )
+        swap_rotators_between_trackers(tracker_a_id, tracker_b_id)
+        return {
+            "success": False,
+            "error": "swap_persist_failed",
+            "message": f"Failed updating tracking state for tracker '{tracker_a_id}'",
+            "data": {
+                "tracker_id": tracker_a_id,
+                "result": update_a_result,
+            },
+        }
+
+    update_b_result = await manager_b.update_tracking_state(rotator_id=effective_rotator_a)
+    if not update_b_result.get("success"):
+        logger.error(
+            "Failed persisting swapped rotator for tracker '%s'; reverting both tracker updates",
+            tracker_b_id,
+        )
+        await manager_a.update_tracking_state(rotator_id=effective_rotator_a)
+        swap_rotators_between_trackers(tracker_a_id, tracker_b_id)
+        return {
+            "success": False,
+            "error": "swap_persist_failed",
+            "message": f"Failed updating tracking state for tracker '{tracker_b_id}'",
+            "data": {
+                "tracker_id": tracker_b_id,
+                "result": update_b_result,
+            },
+        }
+
+    async with AsyncSessionLocal() as dbsession:
+        await emit_tracker_data(dbsession, sio, logger, tracker_a_id)
+        await emit_ui_tracker_values(dbsession, sio, logger, tracker_a_id)
+        await emit_tracker_data(dbsession, sio, logger, tracker_b_id)
+        await emit_ui_tracker_values(dbsession, sio, logger, tracker_b_id)
+    await emit_tracker_instances(sio)
+
+    return {
+        "success": True,
+        "data": {
+            "tracker_a_id": tracker_a_id,
+            "tracker_b_id": tracker_b_id,
+            "tracker_a_rotator_id": effective_rotator_b,
+            "tracker_b_rotator_id": effective_rotator_a,
+        },
+    }
+
+
 async def get_tracker_instances(
     sio: Any, data: Optional[Dict], logger: Any, sid: str
 ) -> Dict[str, Union[bool, dict]]:
@@ -338,6 +500,7 @@ def register_handlers(registry):
         {
             "get-tracking-state": (get_tracking_state, "data_request"),
             "set-tracking-state": (set_tracking_state, "data_submission"),
+            "swap-target-rotators": (swap_target_rotators, "data_submission"),
             "get-tracker-instances": (get_tracker_instances, "data_request"),
             "fetch-next-passes": (fetch_next_passes, "data_request"),
         }

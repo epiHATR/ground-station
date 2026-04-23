@@ -23,6 +23,7 @@ import {useDispatch, useSelector} from "react-redux";
 import {
     setRotator,
     setTrackingStateInBackend,
+    swapTargetRotatorsInBackend,
     setRotatorConnecting,
     setRotatorDisconnecting,
     sendNudgeCommand,
@@ -352,6 +353,39 @@ const RotatorControl = React.memo(function RotatorControl({ trackerId: trackerId
 
     function handleRotatorChange(event) {
         const newRotatorId = event.target.value;
+        const rotatorUsageRows = rotatorUsageById[String(newRotatorId)] || [];
+        const ownerUsage = rotatorUsageRows.find((row) => row.trackerId !== scopedTrackerId);
+        if (ownerUsage) {
+            const ownerTrackerId = String(ownerUsage.trackerId || '');
+            const ownerTrackerInstance = trackerInstances.find(
+                (instance) => String(instance?.tracker_id || '') === ownerTrackerId
+            );
+            const ownerRotatorState = ownerTrackerInstance?.tracking_state?.rotator_state;
+            const requesterRotatorState = effectiveTrackingState?.rotator_state;
+            const ownerDisconnected = ownerRotatorState === ROTATOR_STATES.DISCONNECTED;
+            const requesterDisconnected = requesterRotatorState === ROTATOR_STATES.DISCONNECTED;
+            if (!ownerDisconnected || !requesterDisconnected) {
+                toast.error('Swap requires both targets to have rotators disconnected');
+                return;
+            }
+
+            dispatch(
+                swapTargetRotatorsInBackend({
+                    socket,
+                    trackerAId: scopedTrackerId,
+                    trackerBId: ownerTrackerId,
+                })
+            )
+                .unwrap()
+                .then(() => {
+                    dispatch(setRotator({ value: newRotatorId, trackerId: scopedTrackerId }));
+                })
+                .catch((error) => {
+                    toast.error(error?.message || 'Failed swapping rotators');
+                });
+            return;
+        }
+
         // Optimistic UI update so selection reflects immediately while backend confirms.
         dispatch(setRotator({ value: newRotatorId, trackerId: scopedTrackerId }));
         const newTrackingState = {

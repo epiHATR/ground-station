@@ -411,6 +411,36 @@ export const setTrackingStateInBackend = createAsyncThunk(
     }
 );
 
+export const swapTargetRotatorsInBackend = createAsyncThunk(
+    'targetSatTrack/swapTargetRotatorsInBackend',
+    async ({ socket, trackerAId, trackerBId }, { rejectWithValue }) => {
+        const tracker_a_id = resolveTrackerId(trackerAId, '');
+        const tracker_b_id = resolveTrackerId(trackerBId, '');
+        if (!tracker_a_id || !tracker_b_id) {
+            return rejectWithValue({ message: 'trackerAId and trackerBId are required' });
+        }
+        return new Promise((resolve, reject) => {
+            socket.emit(
+                'data_submission',
+                'swap-target-rotators',
+                { tracker_a_id, tracker_b_id },
+                (response) => {
+                    if (response?.success) {
+                        resolve(response?.data || {});
+                    } else {
+                        reject(
+                            rejectWithValue({
+                                ...(response || {}),
+                                message: response?.message || response?.error || 'Failed swapping rotators',
+                            })
+                        );
+                    }
+                }
+            );
+        });
+    }
+);
+
 
 export const fetchNextPasses = createAsyncThunk(
     'targetSatTrack/fetchNextPasses',

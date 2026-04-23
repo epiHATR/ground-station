@@ -220,6 +220,49 @@ class TrackerSupervisor:
             "previous_rotator_id": previous_rotator_id,
         }
 
+    def swap_rotators(self, tracker_a_id: str, tracker_b_id: str) -> Dict[str, Any]:
+        normalized_tracker_a_id = require_tracker_id(tracker_a_id)
+        normalized_tracker_b_id = require_tracker_id(tracker_b_id)
+        self._ensure_target_number(normalized_tracker_a_id)
+        self._ensure_target_number(normalized_tracker_b_id)
+
+        if normalized_tracker_a_id == normalized_tracker_b_id:
+            rotator_id = self.tracker_rotator_map.get(normalized_tracker_a_id)
+            return {
+                "success": True,
+                "tracker_a_id": normalized_tracker_a_id,
+                "tracker_b_id": normalized_tracker_b_id,
+                "tracker_a_rotator_id": rotator_id,
+                "tracker_b_rotator_id": rotator_id,
+                "previous_tracker_a_rotator_id": rotator_id,
+                "previous_tracker_b_rotator_id": rotator_id,
+            }
+
+        tracker_a_rotator_id = self.tracker_rotator_map.get(normalized_tracker_a_id)
+        tracker_b_rotator_id = self.tracker_rotator_map.get(normalized_tracker_b_id)
+
+        if tracker_b_rotator_id:
+            self.tracker_rotator_map[normalized_tracker_a_id] = tracker_b_rotator_id
+            self.rotator_tracker_map[tracker_b_rotator_id] = normalized_tracker_a_id
+        else:
+            self.tracker_rotator_map.pop(normalized_tracker_a_id, None)
+
+        if tracker_a_rotator_id:
+            self.tracker_rotator_map[normalized_tracker_b_id] = tracker_a_rotator_id
+            self.rotator_tracker_map[tracker_a_rotator_id] = normalized_tracker_b_id
+        else:
+            self.tracker_rotator_map.pop(normalized_tracker_b_id, None)
+
+        return {
+            "success": True,
+            "tracker_a_id": normalized_tracker_a_id,
+            "tracker_b_id": normalized_tracker_b_id,
+            "tracker_a_rotator_id": tracker_b_rotator_id,
+            "tracker_b_rotator_id": tracker_a_rotator_id,
+            "previous_tracker_a_rotator_id": tracker_a_rotator_id,
+            "previous_tracker_b_rotator_id": tracker_b_rotator_id,
+        }
+
     def get_assigned_rotator(self, tracker_id: str) -> Optional[str]:
         return self.tracker_rotator_map.get(require_tracker_id(tracker_id))
 
@@ -294,6 +337,10 @@ def restore_tracker_rotator_assignment(tracker_id: str, rotator_id: Optional[str
 
 def get_assigned_rotator_for_tracker(tracker_id: str) -> Optional[str]:
     return _tracker_supervisor.get_assigned_rotator(tracker_id)
+
+
+def swap_rotators_between_trackers(tracker_a_id: str, tracker_b_id: str) -> Dict[str, Any]:
+    return _tracker_supervisor.swap_rotators(tracker_a_id, tracker_b_id)
 
 
 def get_tracker_instances_payload() -> Dict[str, Any]:
