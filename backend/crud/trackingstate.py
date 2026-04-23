@@ -82,9 +82,6 @@ async def set_tracking_state(session: AsyncSession, data: dict) -> dict:
             assert value.get(
                 "norad_id", None
             ), "norad_id is required when creating new tracking state"
-            assert value.get(
-                "group_id", None
-            ), "group_id is required when creating new tracking state"
             assert (
                 value.get("rotator_state", None) is not None
             ), "rotator_state is required when creating new tracking state"

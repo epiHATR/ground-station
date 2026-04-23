@@ -83,6 +83,30 @@ class TestTrackingStateCRUD:
         assert result["success"] is False
         assert "required" in result["error"]
 
+    async def test_set_tracking_state_new_without_group_id(self, db_session):
+        """Automated observations may start tracking without a group_id."""
+        tracking_data = {
+            "name": "satellite-tracking:auto-observation",
+            "value": {
+                "norad_id": 25544,
+                "rotator_state": "tracking",
+                "rig_state": "disconnected",
+                "rotator_id": str(uuid.uuid4()),
+                "rig_id": "none",
+                "transmitter_id": "none",
+                "rig_vfo": "none",
+                "vfo1": "uplink",
+                "vfo2": "downlink",
+            },
+        }
+
+        result = await set_tracking_state(db_session, tracking_data)
+
+        assert result["success"] is True
+        assert result["data"]["name"] == "satellite-tracking:auto-observation"
+        assert result["data"]["value"]["norad_id"] == 25544
+        assert "group_id" not in result["data"]["value"]
+
     async def test_set_tracking_state_update_existing(self, db_session):
         """Test updating existing tracking state."""
         # Create initial state
