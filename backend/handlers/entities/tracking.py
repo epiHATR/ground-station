@@ -199,6 +199,14 @@ async def set_tracking_state(
         if not assignment_result.get("success"):
             owner_tracker_id = assignment_result.get("owner_tracker_id")
             message = f"Rotator '{requested_rotator_id}' is already assigned to tracker '{owner_tracker_id}'."
+            logger.warning(
+                "Rotator ownership conflict while setting tracking state "
+                "(requester_sid=%s, tracker_id=%s, requested_rotator_id=%s, owner_tracker_id=%s)",
+                sid,
+                tracker_id,
+                requested_rotator_id,
+                owner_tracker_id,
+            )
             return {
                 "success": False,
                 "error": "rotator_in_use",
