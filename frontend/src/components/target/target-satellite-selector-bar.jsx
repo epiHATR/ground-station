@@ -64,6 +64,7 @@ import { toast } from "../../utils/toast-with-timestamp.jsx";
 import SatelliteSearchAutocomplete from "./satellite-search.jsx";
 import { useTargetRotatorSelectionDialog } from "./use-target-rotator-selection-dialog.jsx";
 import { deleteTrackerInstance } from "./tracker-instances-slice.jsx";
+import { cancelRunningObservation } from "../scheduler/scheduler-slice.jsx";
 
 const TARGET_SLOT_ID_PATTERN = /^target-(\d+)$/;
 const ADD_TARGET_TAB_VALUE = '__add-target__';
@@ -99,6 +100,7 @@ const TargetSatelliteSelectorBar = React.memo(function TargetSatelliteSelectorBa
         rotatorData,
     } = useSelector((state) => state.targetSatTrack);
     const trackerInstances = useSelector((state) => state.trackerInstances?.instances || []);
+    const schedulerObservations = useSelector((state) => state.scheduler?.observations || []);
     const rigRows = useSelector((state) => state.rigs?.rigs || []);
     const rotatorRows = useSelector((state) => state.rotators?.rotators || []);
     const activeTrackerInstance = useMemo(
@@ -117,6 +119,9 @@ const TargetSatelliteSelectorBar = React.memo(function TargetSatelliteSelectorBa
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [pendingDeleteTarget, setPendingDeleteTarget] = useState(null);
     const [deleteTargetBusy, setDeleteTargetBusy] = useState(false);
+    const [abortDialogOpen, setAbortDialogOpen] = useState(false);
+    const [pendingAbortObservation, setPendingAbortObservation] = useState(null);
+    const [abortObservationBusy, setAbortObservationBusy] = useState(false);
     const [createDialogOpen, setCreateDialogOpen] = useState(false);
     const [createTargetBusy, setCreateTargetBusy] = useState(false);
     const [createSearchOpen, setCreateSearchOpen] = useState(false);
@@ -160,9 +165,48 @@ const TargetSatelliteSelectorBar = React.memo(function TargetSatelliteSelectorBa
             || (trackerInstances.findIndex((row) => row?.tracker_id === trackerIdToDelete) + 1)
             || 0
         );
+        const linkedRunningOrScheduled = schedulerObservations
+            .filter((obs) => obs?.enabled && (obs?.status === 'running' || obs?.status === 'scheduled'))
+            .filter((obs) => {
+                const obsRotatorId = String(obs?.rotator?.id || obs?.rotator_id || 'none');
+                const obsNorad = String(obs?.satellite?.norad_id || 'none');
+                const targetRotatorId = String(instance?.rotator_id || instance?.tracking_state?.rotator_id || 'none');
+                const targetNorad = String(instance?.tracking_state?.norad_id || 'none');
+                if (obsRotatorId !== 'none' && targetRotatorId !== 'none') {
+                    return obsRotatorId === targetRotatorId;
+                }
+                if (obsNorad !== 'none' && targetNorad !== 'none') {
+                    return obsNorad === targetNorad;
+                }
+                return false;
+            });
+        if (linkedRunningOrScheduled.length > 0) {
+            const runningFirst = linkedRunningOrScheduled.find((obs) => obs?.status === 'running');
+            setPendingAbortObservation(runningFirst || linkedRunningOrScheduled[0]);
+            setAbortDialogOpen(true);
+            return;
+        }
         setPendingDeleteTarget({ trackerId: trackerIdToDelete, targetNumber });
         setDeleteDialogOpen(true);
-    }, [trackerInstances]);
+    }, [trackerInstances, schedulerObservations]);
+
+    const handleConfirmAbortObservation = useCallback(async () => {
+        if (!pendingAbortObservation?.id || !socket) {
+            setAbortDialogOpen(false);
+            setPendingAbortObservation(null);
+            return;
+        }
+        try {
+            setAbortObservationBusy(true);
+            await dispatch(cancelRunningObservation({ socket, id: pendingAbortObservation.id })).unwrap();
+            setAbortDialogOpen(false);
+            setPendingAbortObservation(null);
+            setAbortObservationBusy(false);
+        } catch (error) {
+            toast.error(error?.message || String(error) || 'Failed to abort observation');
+            setAbortObservationBusy(false);
+        }
+    }, [dispatch, pendingAbortObservation, socket]);
 
     const handleConfirmDeleteTarget = useCallback(async () => {
         const trackerIdToDelete = pendingDeleteTarget?.trackerId;
@@ -431,6 +475,21 @@ const TargetSatelliteSelectorBar = React.memo(function TargetSatelliteSelectorBa
         const isTracking = Boolean(view?.rigData?.tracking || view?.rotatorData?.tracking);
         const satAz = Number.isFinite(view?.satelliteData?.position?.az) ? view.satelliteData.position.az : null;
         const satEl = Number.isFinite(view?.satelliteData?.position?.el) ? view.satelliteData.position.el : null;
+        const linkedObservations = schedulerObservations
+            .filter((obs) => obs?.enabled)
+            .filter((obs) => {
+                const obsRotatorId = String(obs?.rotator?.id || obs?.rotator_id || 'none');
+                const obsNorad = String(obs?.satellite?.norad_id || 'none');
+                if (obsRotatorId !== 'none' && String(rotatorId) !== 'none') {
+                    return obsRotatorId === String(rotatorId);
+                }
+                if (obsNorad !== 'none' && String(satNorad) !== 'none') {
+                    return obsNorad === String(satNorad);
+                }
+                return false;
+            });
+        const runningObs = linkedObservations.filter((obs) => obs?.status === 'running');
+        const upcomingObs = linkedObservations.filter((obs) => obs?.status === 'scheduled');
         return {
             trackerId: instanceTrackerId,
             targetNumber,
@@ -440,8 +499,13 @@ const TargetSatelliteSelectorBar = React.memo(function TargetSatelliteSelectorBa
             isTracking,
             satAz,
             satEl,
+            runningObsCount: runningObs.length,
+            upcomingObsCount: upcomingObs.length,
+            hasActiveObservation: runningObs.length > 0,
+            hasScheduledObservation: upcomingObs.length > 0,
+            linkedObservations,
         };
-    }), [trackerInstances, trackerViews]);
+    }), [trackerInstances, trackerViews, schedulerObservations]);
 
     const tabValue = targetOptions.some((option) => option.trackerId === trackerId)
         ? trackerId
@@ -555,6 +619,90 @@ const TargetSatelliteSelectorBar = React.memo(function TargetSatelliteSelectorBa
                     startIcon={deleteTargetBusy ? <CircularProgress color="inherit" size={16} /> : null}
                 >
                     {deleteTargetBusy ? 'Deleting...' : 'Delete'}
+                </Button>
+            </DialogActions>
+        </Dialog>
+        <Dialog
+            open={abortDialogOpen}
+            onClose={() => {
+                if (abortObservationBusy) return;
+                setAbortDialogOpen(false);
+                setPendingAbortObservation(null);
+            }}
+            fullWidth
+            maxWidth="xs"
+            PaperProps={{
+                sx: {
+                    bgcolor: 'background.paper',
+                    border: (theme) => `1px solid ${theme.palette.divider}`,
+                    borderRadius: 2,
+                },
+            }}
+        >
+            <DialogTitle
+                sx={{
+                    bgcolor: (theme) => theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100',
+                    borderBottom: (theme) => `1px solid ${theme.palette.divider}`,
+                    fontSize: '1.1rem',
+                    fontWeight: 'bold',
+                    py: 2,
+                }}
+            >
+                {pendingAbortObservation?.status === 'running' ? 'Stop Observation' : 'Abort Observation'}
+            </DialogTitle>
+            <DialogContent sx={{ bgcolor: 'background.paper', px: 3, pb: 2.5 }}>
+                <Box sx={{ pt: 2 }}>
+                    <DialogContentText sx={{ mb: 1 }}>
+                        {pendingAbortObservation?.status === 'running'
+                            ? <>Are you sure you want to stop the observation <strong>{pendingAbortObservation?.satellite?.name || 'Unknown'}</strong>?</>
+                            : <>Are you sure you want to abort the observation <strong>{pendingAbortObservation?.satellite?.name || 'Unknown'}</strong>?</>
+                        }
+                    </DialogContentText>
+                    <DialogContentText color="text.secondary">
+                        {pendingAbortObservation?.status === 'running'
+                            ? 'This will immediately stop the observation and remove all scheduled jobs.'
+                            : 'This will cancel the scheduled observation and remove all scheduled jobs.'
+                        }
+                    </DialogContentText>
+                    {abortObservationBusy && (
+                        <Box sx={{ mt: 1.2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <CircularProgress size={16} />
+                            <Typography variant="caption" color="text.secondary">
+                                Processing observation...
+                            </Typography>
+                        </Box>
+                    )}
+                </Box>
+            </DialogContent>
+            <DialogActions
+                sx={{
+                    bgcolor: (theme) => theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100',
+                    borderTop: (theme) => `1px solid ${theme.palette.divider}`,
+                    px: 3,
+                    py: 2,
+                    gap: 1.5,
+                }}
+            >
+                <Button
+                    variant="outlined"
+                    disabled={abortObservationBusy}
+                    onClick={() => {
+                        setAbortDialogOpen(false);
+                        setPendingAbortObservation(null);
+                    }}
+                >
+                    Cancel
+                </Button>
+                <Button
+                    color="error"
+                    variant="contained"
+                    disabled={abortObservationBusy}
+                    onClick={handleConfirmAbortObservation}
+                    startIcon={abortObservationBusy ? <CircularProgress color="inherit" size={16} /> : null}
+                >
+                    {abortObservationBusy
+                        ? (pendingAbortObservation?.status === 'running' ? 'Stopping...' : 'Aborting...')
+                        : (pendingAbortObservation?.status === 'running' ? 'Stop' : 'Abort')}
                 </Button>
             </DialogActions>
         </Dialog>
@@ -1001,13 +1149,25 @@ const TargetSatelliteSelectorBar = React.memo(function TargetSatelliteSelectorBa
                                 const shortName = option.satName.length > 20
                                     ? `${option.satName.slice(0, 20)}...`
                                     : option.satName;
+                                const tooltipLines = [
+                                    `Target ${option.targetNumber}`,
+                                    `${option.satName}`,
+                                    `NORAD ${option.satNorad}`,
+                                    `Rotator ${option.rotatorId}`,
+                                ];
+                                if (option.runningObsCount > 0) {
+                                    tooltipLines.push(`Obs running: ${option.runningObsCount}`);
+                                }
+                                if (option.upcomingObsCount > 0) {
+                                    tooltipLines.push(`Obs upcoming: ${option.upcomingObsCount}`);
+                                }
                                 return (
                                     <Tab
                                         key={option.trackerId}
                                         value={option.trackerId}
                                         label={
                                             <Tooltip
-                                                title={`Target ${option.targetNumber} | ${option.satName} | NORAD ${option.satNorad} | Rotator ${option.rotatorId}`}
+                                                title={tooltipLines.join(' | ')}
                                                 arrow
                                             >
                                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.7, maxWidth: 230 }}>
@@ -1063,6 +1223,14 @@ const TargetSatelliteSelectorBar = React.memo(function TargetSatelliteSelectorBa
                                                 </Box>
                                             </Tooltip>
                                         }
+                                        sx={{
+                                            ...(option.hasActiveObservation ? {
+                                                backgroundImage: 'repeating-linear-gradient(135deg, rgba(255, 193, 7, 0.22) 0px, rgba(255, 193, 7, 0.22) 7px, rgba(255, 87, 34, 0.2) 7px, rgba(255, 87, 34, 0.2) 14px)',
+                                                '&.Mui-selected': {
+                                                    backgroundImage: 'repeating-linear-gradient(135deg, rgba(255, 193, 7, 0.22) 0px, rgba(255, 193, 7, 0.22) 7px, rgba(255, 87, 34, 0.2) 7px, rgba(255, 87, 34, 0.2) 14px)',
+                                                },
+                                            } : {}),
+                                        }}
                                     />
                                 );
                             })}
