@@ -137,6 +137,7 @@ const RigControl = React.memo(function RigControl({ trackerId: trackerIdOverride
         rigs
     } = useSelector((state) => state.rigs);
     const trackerInstances = useSelector((state) => state.trackerInstances?.instances || []);
+    const hasTargets = trackerInstances.length > 0;
     const [isSocketConnected, setIsSocketConnected] = React.useState(Boolean(socket?.connected));
     const [lastRigUpdateAt, setLastRigUpdateAt] = React.useState(Date.now());
     const [now, setNow] = React.useState(Date.now());
@@ -177,9 +178,13 @@ const RigControl = React.memo(function RigControl({ trackerId: trackerIdOverride
         effectiveRigData?.doppler_shift,
     ]);
 
+    const effectiveSelectedRadioRigValue = hasTargets ? effectiveSelectedRadioRig : "none";
+    const effectiveSelectedTransmitterValue = hasTargets ? effectiveSelectedTransmitter : "none";
+    const effectiveSelectedVFO1Value = hasTargets ? (effectiveSelectedVFO1 || "uplink") : "none";
+    const effectiveSelectedVFO2Value = hasTargets ? (effectiveSelectedVFO2 || "downlink") : "none";
     const selectedRigDevice = React.useMemo(
-        () => rigs.find((rig) => rig.id === effectiveSelectedRadioRig),
-        [rigs, effectiveSelectedRadioRig]
+        () => rigs.find((rig) => rig.id === effectiveSelectedRadioRigValue),
+        [rigs, effectiveSelectedRadioRigValue]
     );
 
     const rigUsageById = React.useMemo(() => {
@@ -249,35 +254,43 @@ const RigControl = React.memo(function RigControl({ trackerId: trackerIdOverride
     const lastUpdateAge = Math.max(0, Math.floor((now - lastRigUpdateAt) / 1000));
 
     const connectRigDisabled =
+        !hasTargets ||
         isRigCommandBusy ||
         [RIG_STATES.TRACKING, RIG_STATES.CONNECTED, RIG_STATES.STOPPED].includes(effectiveTrackingState['rig_state']) ||
         ["none", ""].includes(effectiveSelectedRotator) ||
-        ["none", ""].includes(effectiveSelectedRadioRig);
-    const connectRigDisabledReason = isRigCommandBusy
+        ["none", ""].includes(effectiveSelectedRadioRigValue);
+    const connectRigDisabledReason = !hasTargets
+        ? 'No targets configured'
+        : isRigCommandBusy
         ? 'Command in progress'
         : [RIG_STATES.TRACKING, RIG_STATES.CONNECTED, RIG_STATES.STOPPED].includes(effectiveTrackingState['rig_state'])
             ? 'Rig is already connected or tracking'
             : ["none", ""].includes(effectiveSelectedRotator)
                 ? 'Select a rotator first'
-                : ["none", ""].includes(effectiveSelectedRadioRig)
+                : ["none", ""].includes(effectiveSelectedRadioRigValue)
                     ? 'Select a rig first'
                     : null;
 
-    const disconnectRigDisabled = isRigCommandBusy || [RIG_STATES.DISCONNECTED].includes(effectiveTrackingState['rig_state']);
-    const disconnectRigDisabledReason = isRigCommandBusy
+    const disconnectRigDisabled = !hasTargets || isRigCommandBusy || [RIG_STATES.DISCONNECTED].includes(effectiveTrackingState['rig_state']);
+    const disconnectRigDisabledReason = !hasTargets
+        ? 'No targets configured'
+        : isRigCommandBusy
         ? 'Command in progress'
         : [RIG_STATES.DISCONNECTED].includes(effectiveTrackingState['rig_state'])
             ? 'Rig is already disconnected'
             : null;
 
     const trackRigDisabled =
+        !hasTargets ||
         isRigCommandBusy ||
         effectiveTrackingState['rig_state'] === RIG_STATES.TRACKING ||
         effectiveTrackingState['rig_state'] === RIG_STATES.DISCONNECTED ||
         effectiveSatelliteId === "" ||
-        ["none", ""].includes(effectiveSelectedRadioRig) ||
-        ["none", ""].includes(effectiveSelectedTransmitter);
-    const trackRigDisabledReason = isRigCommandBusy
+        ["none", ""].includes(effectiveSelectedRadioRigValue) ||
+        ["none", ""].includes(effectiveSelectedTransmitterValue);
+    const trackRigDisabledReason = !hasTargets
+        ? 'No targets configured'
+        : isRigCommandBusy
         ? 'Command in progress'
         : effectiveTrackingState['rig_state'] === RIG_STATES.TRACKING
             ? 'Rig is already tracking'
@@ -285,24 +298,27 @@ const RigControl = React.memo(function RigControl({ trackerId: trackerIdOverride
                 ? 'Connect the rig first'
                 : effectiveSatelliteId === ""
                     ? 'Select a satellite first'
-                    : ["none", ""].includes(effectiveSelectedRadioRig)
+                    : ["none", ""].includes(effectiveSelectedRadioRigValue)
                         ? 'Select a rig first'
-                        : ["none", ""].includes(effectiveSelectedTransmitter)
+                        : ["none", ""].includes(effectiveSelectedTransmitterValue)
                             ? 'Select a transmitter first'
                             : null;
 
     const stopRigDisabled =
+        !hasTargets ||
         isRigCommandBusy ||
         [RIG_STATES.STOPPED, RIG_STATES.DISCONNECTED, RIG_STATES.CONNECTED].includes(effectiveTrackingState['rig_state']) ||
         effectiveSatelliteId === "" ||
-        ["none", ""].includes(effectiveSelectedRadioRig);
-    const stopRigDisabledReason = isRigCommandBusy
+        ["none", ""].includes(effectiveSelectedRadioRigValue);
+    const stopRigDisabledReason = !hasTargets
+        ? 'No targets configured'
+        : isRigCommandBusy
         ? 'Command in progress'
         : [RIG_STATES.STOPPED, RIG_STATES.DISCONNECTED, RIG_STATES.CONNECTED].includes(effectiveTrackingState['rig_state'])
             ? 'Rig is not currently tracking'
             : effectiveSatelliteId === ""
                 ? 'Select a satellite first'
-                : ["none", ""].includes(effectiveSelectedRadioRig)
+                : ["none", ""].includes(effectiveSelectedRadioRigValue)
                     ? 'Select a rig first'
                     : null;
 
@@ -663,12 +679,12 @@ const RigControl = React.memo(function RigControl({ trackerId: trackerIdOverride
                 <Grid size={{ xs: 12, sm: 12, md: 12 }} style={{padding: '0.5rem 0.5rem 0rem 0.5rem'}}>
                     <Grid container direction="row" spacing={1} sx={{ alignItems: 'flex-end' }}>
                         <Grid size="grow">
-                            <FormControl disabled={effectiveRigData['connected'] === true}
+                            <FormControl disabled={!hasTargets || effectiveRigData['connected'] === true}
                                          sx={{minWidth: 200, marginTop: 0, marginBottom: 1}} fullWidth variant="outlined" size="small">
                                 <InputLabel htmlFor="radiorig-select">{t('rig_control_labels.rig_label')}</InputLabel>
                                 <Select
                                     id="radiorig-select"
-                                    value={rigs.some((rig) => String(rig.id) === String(effectiveSelectedRadioRig)) ? effectiveSelectedRadioRig : "none"}
+                                    value={hasTargets && rigs.some((rig) => String(rig.id) === String(effectiveSelectedRadioRigValue)) ? effectiveSelectedRadioRigValue : "none"}
                                     onChange={(event) => {
                                         handleRigChange(event);
                                     }}
@@ -762,16 +778,24 @@ const RigControl = React.memo(function RigControl({ trackerId: trackerIdOverride
                         <Grid>
                             <IconButton
                                 onClick={() => setOpenQuickEditDialog(true)}
-                                disabled={!effectiveSelectedRadioRig || effectiveSelectedRadioRig === 'none'}
+                                disabled={!hasTargets || !effectiveSelectedRadioRigValue || effectiveSelectedRadioRigValue === 'none'}
                                 sx={{
                                     height: '100%',
                                     marginBottom: 1,
                                     borderRadius: 1,
                                     backgroundColor: 'primary.main',
                                     color: 'white',
+                                    border: '1px solid',
+                                    borderColor: 'primary.dark',
                                     '&:hover': {
                                         backgroundColor: 'primary.dark',
                                     }
+                                    ,
+                                    '&.Mui-disabled': {
+                                        backgroundColor: 'action.disabledBackground',
+                                        color: 'action.disabled',
+                                        borderColor: 'divider',
+                                    },
                                 }}
                             >
                                 <SettingsIcon />
@@ -782,12 +806,12 @@ const RigControl = React.memo(function RigControl({ trackerId: trackerIdOverride
 
                 {/* 2. Transmitter Selection */}
                 <Grid size={{xs: 12, sm: 12, md: 12}} style={{padding: '0rem 0.5rem 0rem 0.5rem'}}>
-                    <FormControl disabled={effectiveRigData['tracking'] === true}
+                    <FormControl disabled={!hasTargets || effectiveRigData['tracking'] === true}
                                  sx={{minWidth: 200, marginTop: 0, marginBottom: 1}} fullWidth variant="outlined" size="small">
                         <InputLabel htmlFor="transmitter-select">{t('rig_control_labels.transmitter_label')}</InputLabel>
                         <Select
                             id="transmitter-select"
-                            value={effectiveAvailableTransmitters.length > 0 && effectiveAvailableTransmitters.some(t => t.id === effectiveSelectedTransmitter) ? effectiveSelectedTransmitter : "none"}
+                            value={hasTargets && effectiveAvailableTransmitters.length > 0 && effectiveAvailableTransmitters.some(t => t.id === effectiveSelectedTransmitterValue) ? effectiveSelectedTransmitterValue : "none"}
                             onChange={(event) => {
                                 handleTransmitterChange(event);
                             }}
@@ -855,12 +879,12 @@ const RigControl = React.memo(function RigControl({ trackerId: trackerIdOverride
                         {/* VFO dropdowns container */}
                         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
                             {/* VFO 1 */}
-                            <FormControl disabled={effectiveRigData['tracking'] === true}
+                            <FormControl disabled={!hasTargets || effectiveRigData['tracking'] === true}
                                          sx={{marginTop: 0, marginBottom: 0}} fullWidth variant="outlined" size="small">
                                 <InputLabel htmlFor="vfo1-select">VFO 1</InputLabel>
                                 <Select
                                     id="vfo1-select"
-                                    value={effectiveSelectedTransmitter === "none" ? "none" : (effectiveSelectedVFO1 || "uplink")}
+                                    value={effectiveSelectedTransmitterValue === "none" ? "none" : effectiveSelectedVFO1Value}
                                     onChange={(event) => {
                                         handleVFO1Change(event);
                                     }}
@@ -891,12 +915,12 @@ const RigControl = React.memo(function RigControl({ trackerId: trackerIdOverride
                             </FormControl>
 
                             {/* VFO 2 */}
-                            <FormControl disabled={effectiveRigData['tracking'] === true}
+                            <FormControl disabled={!hasTargets || effectiveRigData['tracking'] === true}
                                          sx={{marginTop: 0, marginBottom: 1}} fullWidth variant="outlined" size="small">
                                 <InputLabel htmlFor="vfo2-select">VFO 2</InputLabel>
                                 <Select
                                     id="vfo2-select"
-                                    value={effectiveSelectedTransmitter === "none" ? "none" : (effectiveSelectedVFO2 || "downlink")}
+                                    value={effectiveSelectedTransmitterValue === "none" ? "none" : effectiveSelectedVFO2Value}
                                     onChange={(event) => {
                                         handleVFO2Change(event);
                                     }}
@@ -931,7 +955,7 @@ const RigControl = React.memo(function RigControl({ trackerId: trackerIdOverride
                         <Box sx={{ display: 'flex', alignItems: 'stretch', flexShrink: 0 }}>
                             <IconButton
                                 onClick={handleVFOSwap}
-                                disabled={effectiveRigData['tracking'] === true}
+                                disabled={!hasTargets || effectiveRigData['tracking'] === true}
                                 sx={{
                                     height: 'calc(100% - 5px)',
                                     borderRadius: 1,

@@ -325,6 +325,13 @@ const TargetSatelliteMapContainer = ({}) => {
     const [currentSatellitesPosition, setCurrentSatellitesPosition] = useState([]);
     const [currentSatellitesCoverage, setCurrentSatellitesCoverage] = useState([]);
     const [currentCrosshairs, setCurrentCrosshairs] = useState([]);
+    const clearRenderedSatelliteLayers = useCallback(() => {
+        setCurrentPastSatellitesPaths([]);
+        setCurrentFutureSatellitesPaths([]);
+        setCurrentSatellitesPosition([]);
+        setCurrentSatellitesCoverage([]);
+        setCurrentCrosshairs([]);
+    }, []);
     const handleSetMapZoomLevel = useCallback((zoomLevel) => {
         dispatch(setMapZoomLevel(zoomLevel));
     }, [dispatch]);
@@ -352,7 +359,18 @@ const TargetSatelliteMapContainer = ({}) => {
         showSunIcon, showMoonIcon, showTerminatorLine, pastOrbitLineColor, futureOrbitLineColor,
         satelliteCoverageColor]);
 
+    useEffect(() => {
+        if (trackerInstances.length > 0 && noradId) {
+            return;
+        }
+        clearRenderedSatelliteLayers();
+    }, [trackerInstances.length, noradId, clearRenderedSatelliteLayers]);
+
     const satelliteUpdate = function (now) {
+        if (trackerInstances.length === 0 || !noradId) {
+            clearRenderedSatelliteLayers();
+            return;
+        }
         if (Object.keys(satelliteDetails['name']).length !== 0) {
 
             const satelliteName = satelliteDetails['name'];
@@ -503,7 +521,7 @@ const TargetSatelliteMapContainer = ({}) => {
 
         } else {
             //console.warn("No satellite data found for norad id: ", noradId, satelliteDetails);
-            setCurrentCrosshairs([]);
+            clearRenderedSatelliteLayers();
         }
 
         // Day/night boundary

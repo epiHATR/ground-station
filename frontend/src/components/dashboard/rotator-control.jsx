@@ -87,6 +87,7 @@ const RotatorControl = React.memo(function RotatorControl({ trackerId: trackerId
         trackerId: activeTrackerId,
     } = useSelector((state) => state.targetSatTrack);
     const trackerInstances = useSelector((state) => state.trackerInstances?.instances || []);
+    const hasTargets = trackerInstances.length > 0;
 
     const { rigs } = useSelector((state) => state.rigs);
     const { rotators } = useSelector((state) => state.rotators);
@@ -158,9 +159,10 @@ const RotatorControl = React.memo(function RotatorControl({ trackerId: trackerId
         effectiveRotatorData?.el,
     ]);
 
+    const effectiveSelectedRotatorValue = hasTargets ? effectiveSelectedRotator : "none";
     const selectedRotatorDevice = React.useMemo(
-        () => rotators.find((rotator) => rotator.id === effectiveSelectedRotator),
-        [rotators, effectiveSelectedRotator]
+        () => rotators.find((rotator) => rotator.id === effectiveSelectedRotatorValue),
+        [rotators, effectiveSelectedRotatorValue]
     );
 
     const rotatorUsageById = React.useMemo(() => {
@@ -225,38 +227,48 @@ const RotatorControl = React.memo(function RotatorControl({ trackerId: trackerId
 
     const lastUpdateAge = Math.max(0, Math.floor((now - lastRotatorUpdateAt) / 1000));
 
-    const connectDisabled = isRotatorCommandBusy || !canConnectRotator(effectiveRotatorData, effectiveSelectedRotator);
-    const connectDisabledReason = isRotatorCommandBusy
+    const connectDisabled = !hasTargets || isRotatorCommandBusy || !canConnectRotator(effectiveRotatorData, effectiveSelectedRotatorValue);
+    const connectDisabledReason = !hasTargets
+        ? 'No targets configured'
+        : isRotatorCommandBusy
         ? 'Command in progress'
-        : !canConnectRotator(effectiveRotatorData, effectiveSelectedRotator)
+        : !canConnectRotator(effectiveRotatorData, effectiveSelectedRotatorValue)
             ? 'Select a rotator first'
             : null;
 
-    const disconnectDisabled = isRotatorCommandBusy || [ROTATOR_STATES.DISCONNECTED].includes(effectiveTrackingState['rotator_state']);
-    const disconnectDisabledReason = isRotatorCommandBusy
+    const disconnectDisabled = !hasTargets || isRotatorCommandBusy || [ROTATOR_STATES.DISCONNECTED].includes(effectiveTrackingState['rotator_state']);
+    const disconnectDisabledReason = !hasTargets
+        ? 'No targets configured'
+        : isRotatorCommandBusy
         ? 'Command in progress'
         : [ROTATOR_STATES.DISCONNECTED].includes(effectiveTrackingState['rotator_state'])
             ? 'Rotator is already disconnected'
             : null;
 
-    const parkDisabled = isRotatorCommandBusy || [ROTATOR_STATES.DISCONNECTED].includes(effectiveTrackingState['rotator_state']);
-    const parkDisabledReason = isRotatorCommandBusy
+    const parkDisabled = !hasTargets || isRotatorCommandBusy || [ROTATOR_STATES.DISCONNECTED].includes(effectiveTrackingState['rotator_state']);
+    const parkDisabledReason = !hasTargets
+        ? 'No targets configured'
+        : isRotatorCommandBusy
         ? 'Command in progress'
         : [ROTATOR_STATES.DISCONNECTED].includes(effectiveTrackingState['rotator_state'])
             ? 'Connect the rotator first'
             : null;
 
-    const trackDisabled = isRotatorCommandBusy || !canStartTracking(effectiveTrackingState, effectiveSatelliteId, effectiveSelectedRotator);
-    const trackDisabledReason = isRotatorCommandBusy
+    const trackDisabled = !hasTargets || isRotatorCommandBusy || !canStartTracking(effectiveTrackingState, effectiveSatelliteId, effectiveSelectedRotatorValue);
+    const trackDisabledReason = !hasTargets
+        ? 'No targets configured'
+        : isRotatorCommandBusy
         ? 'Command in progress'
-        : !canStartTracking(effectiveTrackingState, effectiveSatelliteId, effectiveSelectedRotator)
+        : !canStartTracking(effectiveTrackingState, effectiveSatelliteId, effectiveSelectedRotatorValue)
             ? 'Select satellite and rotator, then connect first'
             : null;
 
-    const stopDisabled = isRotatorCommandBusy || !canStopTracking(effectiveTrackingState, effectiveSatelliteId, effectiveSelectedRotator);
-    const stopDisabledReason = isRotatorCommandBusy
+    const stopDisabled = !hasTargets || isRotatorCommandBusy || !canStopTracking(effectiveTrackingState, effectiveSatelliteId, effectiveSelectedRotatorValue);
+    const stopDisabledReason = !hasTargets
+        ? 'No targets configured'
+        : isRotatorCommandBusy
         ? 'Command in progress'
-        : !canStopTracking(effectiveTrackingState, effectiveSatelliteId, effectiveSelectedRotator)
+        : !canStopTracking(effectiveTrackingState, effectiveSatelliteId, effectiveSelectedRotatorValue)
             ? 'Rotator is not currently tracking'
             : null;
 
@@ -483,12 +495,12 @@ const RotatorControl = React.memo(function RotatorControl({ trackerId: trackerId
                 <Grid size={{ xs: 12, sm: 12, md: 12 }} style={{padding: '0.5rem 0.5rem 0rem 0.5rem'}}>
                     <Grid container direction="row" spacing={1} sx={{ alignItems: 'flex-end' }}>
                         <Grid size="grow">
-                            <FormControl disabled={isRotatorSelectionDisabled(effectiveTrackingState)}
+                            <FormControl disabled={!hasTargets || isRotatorSelectionDisabled(effectiveTrackingState)}
                                          sx={{minWidth: 200, marginTop: 0, marginBottom: 1}} fullWidth variant="outlined" size="small">
                                 <InputLabel htmlFor="rotator-select">{t('rotator_control_labels.rotator_label')}</InputLabel>
                                 <Select
                                     id="rotator-select"
-                                    value={rotators.some((rotator) => String(rotator.id) === String(effectiveSelectedRotator)) ? effectiveSelectedRotator : "none"}
+                                    value={hasTargets && rotators.some((rotator) => String(rotator.id) === String(effectiveSelectedRotatorValue)) ? effectiveSelectedRotatorValue : "none"}
                                     onChange={(event) => {
                                         handleRotatorChange(event);
                                     }}
@@ -582,16 +594,24 @@ const RotatorControl = React.memo(function RotatorControl({ trackerId: trackerId
                         <Grid>
                             <IconButton
                                 onClick={() => setOpenQuickEditDialog(true)}
-                                disabled={!effectiveSelectedRotator || effectiveSelectedRotator === 'none'}
+                                disabled={!hasTargets || !effectiveSelectedRotatorValue || effectiveSelectedRotatorValue === 'none'}
                                 sx={{
                                     height: '100%',
                                     marginBottom: 1,
                                     borderRadius: 1,
                                     backgroundColor: 'primary.main',
                                     color: 'white',
+                                    border: '1px solid',
+                                    borderColor: 'primary.dark',
                                     '&:hover': {
                                         backgroundColor: 'primary.dark',
                                     }
+                                    ,
+                                    '&.Mui-disabled': {
+                                        backgroundColor: 'action.disabledBackground',
+                                        color: 'action.disabled',
+                                        borderColor: 'divider',
+                                    },
                                 }}
                             >
                                 <SettingsIcon />
@@ -681,7 +701,7 @@ const RotatorControl = React.memo(function RotatorControl({ trackerId: trackerId
                             <Grid>
                                 <Button
                                     size="small"
-                                    disabled={!canControlRotator(effectiveRotatorData, effectiveTrackingState)}
+                                    disabled={!hasTargets || !canControlRotator(effectiveRotatorData, effectiveTrackingState)}
                                     fullWidth={true}
                                     variant="contained"
                                     color="primary"
@@ -695,7 +715,7 @@ const RotatorControl = React.memo(function RotatorControl({ trackerId: trackerId
                             <Grid>
                                 <Button
                                     size="small"
-                                    disabled={!canControlRotator(effectiveRotatorData, effectiveTrackingState)}
+                                    disabled={!hasTargets || !canControlRotator(effectiveRotatorData, effectiveTrackingState)}
                                     fullWidth={true}
                                     variant="contained"
                                     color="primary"
@@ -715,7 +735,7 @@ const RotatorControl = React.memo(function RotatorControl({ trackerId: trackerId
                             <Grid>
                                 <Button
                                     size="small"
-                                    disabled={!canControlRotator(effectiveRotatorData, effectiveTrackingState)}
+                                    disabled={!hasTargets || !canControlRotator(effectiveRotatorData, effectiveTrackingState)}
                                     fullWidth={true}
                                     variant="contained"
                                     color="primary"
@@ -729,7 +749,7 @@ const RotatorControl = React.memo(function RotatorControl({ trackerId: trackerId
                             <Grid>
                                 <Button
                                     size="small"
-                                    disabled={!canControlRotator(effectiveRotatorData, effectiveTrackingState)}
+                                    disabled={!hasTargets || !canControlRotator(effectiveRotatorData, effectiveTrackingState)}
                                     fullWidth={true}
                                     variant="contained"
                                     color="primary"
