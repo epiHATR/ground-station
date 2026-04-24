@@ -160,26 +160,14 @@ const TargetSatelliteSelectorBar = React.memo(function TargetSatelliteSelectorBa
             return;
         }
         const instance = trackerInstances.find((row) => row?.tracker_id === trackerIdToDelete);
+        const targetOption = targetOptions.find((option) => option.trackerId === trackerIdToDelete);
         const targetNumber = Number(
             instance?.target_number
             || (trackerInstances.findIndex((row) => row?.tracker_id === trackerIdToDelete) + 1)
             || 0
         );
-        const linkedRunningOrScheduled = schedulerObservations
-            .filter((obs) => obs?.enabled && (obs?.status === 'running' || obs?.status === 'scheduled'))
-            .filter((obs) => {
-                const obsRotatorId = String(obs?.rotator?.id || obs?.rotator_id || 'none');
-                const obsNorad = String(obs?.satellite?.norad_id || 'none');
-                const targetRotatorId = String(instance?.rotator_id || instance?.tracking_state?.rotator_id || 'none');
-                const targetNorad = String(instance?.tracking_state?.norad_id || 'none');
-                if (obsRotatorId !== 'none' && targetRotatorId !== 'none') {
-                    return obsRotatorId === targetRotatorId;
-                }
-                if (obsNorad !== 'none' && targetNorad !== 'none') {
-                    return obsNorad === targetNorad;
-                }
-                return false;
-            });
+        const linkedRunningOrScheduled = (targetOption?.linkedObservations || [])
+            .filter((obs) => obs?.enabled && (obs?.status === 'running' || obs?.status === 'scheduled'));
         if (linkedRunningOrScheduled.length > 0) {
             const runningFirst = linkedRunningOrScheduled.find((obs) => obs?.status === 'running');
             setPendingAbortObservation(runningFirst || linkedRunningOrScheduled[0]);
@@ -188,7 +176,7 @@ const TargetSatelliteSelectorBar = React.memo(function TargetSatelliteSelectorBa
         }
         setPendingDeleteTarget({ trackerId: trackerIdToDelete, targetNumber });
         setDeleteDialogOpen(true);
-    }, [trackerInstances, schedulerObservations]);
+    }, [trackerInstances, targetOptions]);
 
     const handleConfirmAbortObservation = useCallback(async () => {
         if (!pendingAbortObservation?.id || !socket) {
