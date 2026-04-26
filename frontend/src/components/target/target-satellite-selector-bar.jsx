@@ -1195,7 +1195,7 @@ const TargetSatelliteSelectorBar = React.memo(function TargetSatelliteSelectorBa
                                     },
                                 }}
                             >
-                                <Typography component="span" sx={{ fontSize: '1.6rem', lineHeight: 1, fontWeight: 700 }}>
+                                <Typography component="span" sx={{ fontSize: '1.9rem', lineHeight: 1, fontWeight: 700 }}>
                                     +
                                 </Typography>
                             </IconButton>
@@ -1298,8 +1298,8 @@ const TargetSatelliteSelectorBar = React.memo(function TargetSatelliteSelectorBa
                                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.7, maxWidth: 230 }}>
                                                     <Box
                                                         sx={{
-                                                            width: 16,
-                                                            height: 16,
+                                                            width: 18,
+                                                            height: 18,
                                                             borderRadius: '50%',
                                                             bgcolor: option.tabHardwareLed?.bgColor || 'action.disabled',
                                                             border: '1px solid',
@@ -1313,7 +1313,7 @@ const TargetSatelliteSelectorBar = React.memo(function TargetSatelliteSelectorBa
                                                         {TabHardwareLedIcon ? (
                                                             <TabHardwareLedIcon
                                                                 sx={{
-                                                                    fontSize: '0.58rem',
+                                                                    fontSize: '0.78rem',
                                                                     color: option.tabHardwareLed?.iconColor || 'common.white',
                                                                 }}
                                                             />
@@ -1349,7 +1349,7 @@ const TargetSatelliteSelectorBar = React.memo(function TargetSatelliteSelectorBa
                                                         size="small"
                                                         onClick={(event) => handleDeleteTarget(event, option)}
                                                         sx={{
-                                                            p: 0.2,
+                                                            p: 0.3,
                                                             ml: 0.2,
                                                             color: 'inherit',
                                                             '&:hover': {
@@ -1357,7 +1357,7 @@ const TargetSatelliteSelectorBar = React.memo(function TargetSatelliteSelectorBa
                                                             },
                                                         }}
                                                     >
-                                                        <CloseIcon sx={{ fontSize: '0.78rem' }} />
+                                                        <CloseIcon sx={{ fontSize: '0.95rem' }} />
                                                     </IconButton>
                                                 </Box>
                                             </Tooltip>
@@ -1377,17 +1377,17 @@ const TargetSatelliteSelectorBar = React.memo(function TargetSatelliteSelectorBa
                                 value={ADD_TARGET_TAB_VALUE}
                                 label={
                                     <Tooltip title="Add target" arrow>
-                                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 18 }}>
-                                            <Typography component="span" sx={{ fontSize: '1.75rem', lineHeight: 1, fontWeight: 700 }}>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 20 }}>
+                                            <Typography component="span" sx={{ fontSize: '2rem', lineHeight: 1, fontWeight: 700 }}>
                                                 +
                                             </Typography>
                                         </Box>
                                     </Tooltip>
                                 }
                                 sx={{
-                                    minWidth: '36px !important',
-                                    maxWidth: '36px !important',
-                                    width: '36px',
+                                    minWidth: '40px !important',
+                                    maxWidth: '40px !important',
+                                    width: '40px',
                                     px: '0 !important',
                                     mr: '0 !important',
                                     '&.Mui-selected': {
