@@ -87,6 +87,7 @@ This project was built with the help of Claude Code and Codex.
 ## Key Features
 
 *   **Real-time Satellite Tracking:** Track hundreds of satellites with high-precision orbital models. TLE data is automatically updated from CelesTrak and SatNOGS.
+*   **Multi-Target Tracking Fleet:** Run multiple target trackers at the same time, each with its own rig/rotator control path, so you can operate several target-hardware chains in parallel.
 *   **Automated Antenna Rotator Control:** Interface with popular antenna rotators to automatically track satellites as they pass overhead.
 *   **Rig Control (Hamlib):** Control Hamlib-compatible rigs with Doppler correction during satellite passes.
 *   **SDR Integration:** Stream and record live radio signals from a wide range of SDR devices, including RTL-SDR, SoapySDR, and UHD/USRP radios.
