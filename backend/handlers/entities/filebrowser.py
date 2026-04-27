@@ -20,6 +20,7 @@ This module provides Socket.IO message handlers for browsing and managing
 IQ recordings and waterfall snapshots stored on the filesystem.
 """
 
+import asyncio
 import json
 import shutil
 from datetime import datetime, timezone
@@ -188,34 +189,36 @@ def parse_transcription_metadata(transcription_file_path: str) -> Dict[str, Any]
         return {"error": f"Failed to parse metadata: {str(e)}"}
 
 
-async def emit_file_browser_state(sio, state_data, logger):
+async def emit_file_browser_state(sio, state_data, logger, room=None):
     """
-    Emit file browser state to all connected clients.
+    Emit file browser state.
 
     Args:
         sio: Socket.IO server instance
         state_data: State data to emit
         logger: Logger instance
+        room: Optional Socket.IO room/session id target
     """
     try:
-        await sio.emit("file_browser_state", state_data)
+        await sio.emit("file_browser_state", state_data, room=room)
         logger.debug(f"Emitted file_browser_state: {state_data.get('action', 'unknown')}")
     except Exception as e:
         logger.error(f"Error emitting file_browser_state: {str(e)}")
 
 
-async def emit_file_browser_error(sio, error_message, action, logger):
+async def emit_file_browser_error(sio, error_message, action, logger, room=None):
     """
-    Emit file browser error to all connected clients.
+    Emit file browser error.
 
     Args:
         sio: Socket.IO server instance
         error_message: Error message
         action: Action that caused the error
         logger: Logger instance
+        room: Optional Socket.IO room/session id target
     """
     try:
-        await sio.emit("file_browser_error", {"error": error_message, "action": action})
+        await sio.emit("file_browser_error", {"error": error_message, "action": action}, room=room)
         logger.error(f"Emitted file_browser_error for action '{action}': {error_message}")
     except Exception as e:
         logger.error(f"Error emitting file_browser_error: {str(e)}")
@@ -448,7 +451,10 @@ async def filebrowser_request_routing(sio, cmd, data, logger, sid):
             if show_recordings and recordings_dir.exists():
                 meta_files = list(recordings_dir.glob("*.sigmf-meta"))
 
-                for meta_file in meta_files:
+                for idx, meta_file in enumerate(meta_files):
+                    # Cooperative yield so large directory scans do not block audio/socket events.
+                    if idx % 25 == 0:
+                        await asyncio.sleep(0)
                     base_name = meta_file.stem
                     data_file = recordings_dir / f"{base_name}.sigmf-data"
 
@@ -502,7 +508,10 @@ async def filebrowser_request_routing(sio, cmd, data, logger, sid):
             if show_snapshots and snapshots_dir.exists():
                 png_files = list(snapshots_dir.glob("*.png"))
 
-                for png_file in png_files:
+                for idx, png_file in enumerate(png_files):
+                    # Cooperative yield so large directory scans do not block audio/socket events.
+                    if idx % 25 == 0:
+                        await asyncio.sleep(0)
                     file_stat = png_file.stat()
                     width, height = get_image_dimensions(str(png_file))
 
@@ -531,7 +540,10 @@ async def filebrowser_request_routing(sio, cmd, data, logger, sid):
                     d for d in decoded_dir.iterdir() if d.is_dir() and ".satdump_" in d.name
                 ]
 
-                for folder in satdump_folders:
+                for idx, folder in enumerate(satdump_folders):
+                    # Cooperative yield so large directory scans do not block audio/socket events.
+                    if idx % 10 == 0:
+                        await asyncio.sleep(0)
                     folder_stat = folder.stat()
 
                     # Parse dataset.json for metadata
@@ -564,7 +576,10 @@ async def filebrowser_request_routing(sio, cmd, data, logger, sid):
                     # Find all images in subdirectories
                     images = []
                     total_size = 0
-                    for img_file in folder.rglob("*.png"):
+                    for img_idx, img_file in enumerate(folder.rglob("*.png")):
+                        # Cooperative yield so large directory scans do not block audio/socket events.
+                        if img_idx % 25 == 0:
+                            await asyncio.sleep(0)
                         img_stat = img_file.stat()
                         width, height = get_image_dimensions(str(img_file))
                         relative_path = img_file.relative_to(folder)
@@ -642,7 +657,10 @@ async def filebrowser_request_routing(sio, cmd, data, logger, sid):
                 for pattern in ["*.png", "*.jpg", "*.jpeg", "*.txt", "*.bin"]:
                     decoded_files.extend(list(decoded_dir.glob(pattern)))
 
-                for decoded_file in decoded_files:
+                for idx, decoded_file in enumerate(decoded_files):
+                    # Cooperative yield so large directory scans do not block audio/socket events.
+                    if idx % 25 == 0:
+                        await asyncio.sleep(0)
                     file_stat = decoded_file.stat()
 
                     # Get image dimensions if it's an image file
@@ -751,7 +769,10 @@ async def filebrowser_request_routing(sio, cmd, data, logger, sid):
                 # Find all WAV audio files
                 audio_files = list(audio_dir.glob("*.wav"))
 
-                for audio_file in audio_files:
+                for idx, audio_file in enumerate(audio_files):
+                    # Cooperative yield so large directory scans do not block audio/socket events.
+                    if idx % 25 == 0:
+                        await asyncio.sleep(0)
                     file_stat = audio_file.stat()
 
                     # Parse metadata from JSON file
@@ -811,7 +832,10 @@ async def filebrowser_request_routing(sio, cmd, data, logger, sid):
                 # Find all transcription text files
                 transcription_files = list(transcriptions_dir.glob("*.txt"))
 
-                for transcription_file in transcription_files:
+                for idx, transcription_file in enumerate(transcription_files):
+                    # Cooperative yield so large directory scans do not block audio/socket events.
+                    if idx % 25 == 0:
+                        await asyncio.sleep(0)
                     file_stat = transcription_file.stat()
 
                     # Parse metadata from file header
@@ -873,6 +897,7 @@ async def filebrowser_request_routing(sio, cmd, data, logger, sid):
                     "diskUsage": disk_usage,
                 },
                 logger,
+                room=sid,
             )
 
         elif cmd == "list-recordings":
