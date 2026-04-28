@@ -33,7 +33,8 @@ class SDRConfig:
     fft_window: Optional[str]
     fft_averaging: Optional[int]
     sdr_id: str
-    fft_overlap: Optional[bool] = None
+    fft_overlap_percent: Optional[int] = None
+    fft_overlap_depth: Optional[int] = None
     recording_path: Optional[str] = None
     serial_number: Optional[SerialNumber] = None
     host: Optional[str] = None
@@ -65,8 +66,10 @@ class SDRConfig:
             payload["fft_window"] = self.fft_window
         if self.fft_averaging is not None:
             payload["fft_averaging"] = self.fft_averaging
-        if self.fft_overlap is not None:
-            payload["fft_overlap"] = self.fft_overlap
+        if self.fft_overlap_percent is not None:
+            payload["fft_overlap_percent"] = self.fft_overlap_percent
+        if self.fft_overlap_depth is not None:
+            payload["fft_overlap_depth"] = self.fft_overlap_depth
         if self.recording_path is not None:
             payload["recording_path"] = self.recording_path
         if self.serial_number is not None:

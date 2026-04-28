@@ -271,7 +271,8 @@ class ProcessLifecycleManager:
             for param in [
                 "fft_size",
                 "fft_window",
-                "fft_overlap",
+                "fft_overlap_percent",
+                "fft_overlap_depth",
                 "sample_rate",
                 "center_freq",
                 "gain",
@@ -302,7 +303,12 @@ class ProcessLifecycleManager:
                     "gain": config.get("gain", sdr_config.get("gain")),
                     "fft_size": config.get("fft_size", sdr_config.get("fft_size")),
                     "fft_window": config.get("fft_window", sdr_config.get("fft_window")),
-                    "fft_overlap": config.get("fft_overlap", sdr_config.get("fft_overlap", True)),
+                    "fft_overlap_percent": config.get(
+                        "fft_overlap_percent", sdr_config.get("fft_overlap_percent", 0)
+                    ),
+                    "fft_overlap_depth": config.get(
+                        "fft_overlap_depth", sdr_config.get("fft_overlap_depth", 16)
+                    ),
                     "bias_t": config.get("bias_t", sdr_config.get("bias_t", False)),
                     "tuner_agc": config.get("tuner_agc", sdr_config.get("tuner_agc", False)),
                     "rtl_agc": config.get("rtl_agc", sdr_config.get("rtl_agc", False)),
@@ -339,6 +345,8 @@ class ProcessLifecycleManager:
 
             # Prepare initial configuration
             config = SDRConfig(
+                fft_overlap_percent=sdr_config.get("fft_overlap_percent", 0),
+                fft_overlap_depth=sdr_config.get("fft_overlap_depth", 16),
                 sdr_id=sdr_id,
                 center_freq=sdr_config.get("center_freq", 100e6),
                 sample_rate=sdr_config.get("sample_rate", 2.048e6),
@@ -349,7 +357,6 @@ class ProcessLifecycleManager:
                 rtl_agc=sdr_config.get("rtl_agc", False),
                 fft_window=sdr_config.get("fft_window"),
                 fft_averaging=sdr_config.get("fft_averaging"),
-                fft_overlap=sdr_config.get("fft_overlap", True),
                 recording_path=sdr_config.get("recording_path", ""),
                 serial_number=sdr_config.get("serial_number", 0),
                 host=hostname,

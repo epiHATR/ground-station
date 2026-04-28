@@ -86,7 +86,8 @@ def rtlsdr_worker_process(
         fft_averaging = config.get("fft_averaging", 6)
 
         # FFT overlap (passed to IQ consumers)
-        fft_overlap = config.get("fft_overlap", True)
+        fft_overlap_percent = int(config.get("fft_overlap_percent", 0) or 0)
+        fft_overlap_depth = int(config.get("fft_overlap_depth", 16) or 16)
 
         # Track whether we have IQ consumers
         has_iq_consumers = iq_queue_fft is not None or iq_queue_demod is not None
@@ -222,6 +223,22 @@ def rtlsdr_worker_process(
                             fft_averaging = new_config["fft_averaging"]
                             logger.info(f"Updated FFT averaging: {fft_averaging}")
 
+                    if "fft_overlap_percent" in new_config:
+                        if (
+                            old_config.get("fft_overlap_percent", fft_overlap_percent)
+                            != new_config["fft_overlap_percent"]
+                        ):
+                            fft_overlap_percent = int(new_config["fft_overlap_percent"] or 0)
+                            logger.info(f"Updated FFT overlap percent: {fft_overlap_percent}%")
+
+                    if "fft_overlap_depth" in new_config:
+                        if (
+                            old_config.get("fft_overlap_depth", fft_overlap_depth)
+                            != new_config["fft_overlap_depth"]
+                        ):
+                            fft_overlap_depth = int(new_config["fft_overlap_depth"] or 16)
+                            logger.info(f"Updated FFT overlap depth: {fft_overlap_depth}")
+
                     if "bias_t" in new_config:
                         if old_config.get("bias_t", None) != new_config["bias_t"]:
                             sdr.set_bias_tee(new_config["bias_t"])
@@ -303,7 +320,8 @@ def rtlsdr_worker_process(
                                         "fft_size": fft_size,
                                         "fft_window": fft_window,
                                         "fft_averaging": fft_averaging,
-                                        "fft_overlap": fft_overlap,
+                                        "fft_overlap_percent": fft_overlap_percent,
+                                        "fft_overlap_depth": fft_overlap_depth,
                                     },
                                 }
                                 iq_queue_fft.put_nowait(iq_message)

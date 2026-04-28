@@ -41,7 +41,8 @@ import {
     setFFTSize,
     setFFTSizeOptions,
     setFFTAveraging,
-    setFFTOverlap,
+    setFFTOverlapPercent,
+    setFFTOverlapDepth,
     setBandscopeSmoothing,
     setGain,
     setSampleRate,
@@ -123,7 +124,8 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
         rtlGains,
         fftWindow,
         fftWindows,
-        fftOverlap,
+        fftOverlapPercent,
+        fftOverlapDepth,
         expandedPanels,
         selectedSDRId,
         gettingSDRParameters,
@@ -169,7 +171,8 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
             rtlGains: state.waterfall.rtlGains,
             fftWindow: state.waterfall.fftWindow,
             fftWindows: state.waterfall.fftWindows,
-            fftOverlap: state.waterfall.fftOverlap,
+            fftOverlapPercent: state.waterfall.fftOverlapPercent,
+            fftOverlapDepth: state.waterfall.fftOverlapDepth ?? 16,
             expandedPanels: state.waterfall.expandedPanels,
             selectedSDRId: state.waterfall.selectedSDRId,
             gettingSDRParameters: state.waterfall.gettingSDRParameters,
@@ -263,11 +266,7 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
         // No cleanup function - let the ref stay true to prevent any subsequent calls for StrictMode
     }, []);
 
-    const getDefaultFFTOverlapForSDR = useCallback((sdrId) => {
-        const sdr = sdrs.find((item) => item.id === sdrId);
-        const sdrType = (sdr?.type || '').toLowerCase();
-        return ['rtlsdrtcpv3', 'rtlsdrusbv3', 'rtlsdrtcpv4', 'rtlsdrusbv4'].includes(sdrType);
-    }, [sdrs]);
+    const getDefaultFFTOverlapPercentForSDR = useCallback(() => 50, []);
 
     const getValidGainElements = useCallback((sdrId) => {
         const caps = sdrCapabilities?.[sdrId];
@@ -311,7 +310,8 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
                     tunerAgc: tunerAgc,
                     rtlAgc: rtlAgc,
                     fftWindow: fftWindow,
-                    fftOverlap: fftOverlap,
+                    fftOverlapPercent: fftOverlapPercent,
+                    fftOverlapDepth: fftOverlapDepth,
                     antenna: selectedAntenna,
                     soapyAgc: soapyAgc,
                     offsetFrequency: selectedOffsetValue,
@@ -346,7 +346,8 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
             gain,
             fftSize,
             fftWindow,
-            fftOverlap,
+            fftOverlapPercent,
+            fftOverlapDepth,
             fftAveraging,
             biasT,
             tunerAgc,
@@ -461,7 +462,8 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
 
         dispatch(setSelectedSDRId(selectedValue));
         if (selectedValue && selectedValue !== "none") {
-            dispatch(setFFTOverlap(getDefaultFFTOverlapForSDR(selectedValue)));
+            const defaultPercent = getDefaultFFTOverlapPercentForSDR();
+            dispatch(setFFTOverlapPercent(defaultPercent));
         }
 
         if (selectedValue === "none") {
@@ -480,7 +482,7 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
                     dispatch(setErrorDialogOpen(true));
                 });
         }
-    }, [dispatch, loadSDRParameters, applyLoadedSDRParameters, getDefaultFFTOverlapForSDR]);
+    }, [dispatch, loadSDRParameters, applyLoadedSDRParameters, getDefaultFFTOverlapPercentForSDR]);
 
     const handleRefreshSDRParameters = useCallback(() => {
         if (!selectedSDRId || selectedSDRId === "none") {
@@ -946,8 +948,15 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
     }, [dispatch, sendSDRConfigToBackend]);
 
     const handleFFTOverlapChange = useCallback((value) => {
-        dispatch(setFFTOverlap(value));
-        sendSDRConfigToBackend({ fftOverlap: value });
+        const overlapPercent = Number(value) || 0;
+        dispatch(setFFTOverlapPercent(overlapPercent));
+        sendSDRConfigToBackend({ fftOverlapPercent: overlapPercent });
+    }, [dispatch, sendSDRConfigToBackend]);
+
+    const handleFFTOverlapDepthChange = useCallback((value) => {
+        const overlapDepth = Number(value) || 16;
+        dispatch(setFFTOverlapDepth(overlapDepth));
+        sendSDRConfigToBackend({ fftOverlapDepth: overlapDepth });
     }, [dispatch, sendSDRConfigToBackend]);
 
     const handleBandscopeSmoothingChange = useCallback((value) => {
@@ -1064,7 +1073,7 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
 
             // Set antenna to "RX" for sigmfplayback
             dispatch(setSelectedAntenna("RX"));
-            dispatch(setFFTOverlap(false));
+            dispatch(setFFTOverlapPercent(0));
 
             // Set gain to 0 for playback
             dispatch(setGain(0));
@@ -1090,7 +1099,8 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
                     tunerAgc: tunerAgc,
                     rtlAgc: rtlAgc,
                     fftWindow: fftWindow,
-                    fftOverlap: false,
+                    fftOverlapPercent: 0,
+                    fftOverlapDepth: fftOverlapDepth,
                     antenna: "RX",
                     soapyAgc: soapyAgc,
                     offsetFrequency: selectedOffsetValue,
@@ -1126,7 +1136,8 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
                 tunerAgc,
                 rtlAgc,
                 fftWindow,
-                fftOverlap,
+                fftOverlapPercent,
+                fftOverlapDepth,
                 antenna: selectedAntenna,
                 offsetFrequency: selectedOffsetValue,
                 soapyAgc,
@@ -1280,8 +1291,10 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
                     onFFTWindowChange={handleFFTWindowChange}
                     fftAveraging={fftAveraging}
                     onFFTAveragingChange={handleFFTAveragingChange}
-                    fftOverlap={fftOverlap}
+                    fftOverlapPercent={fftOverlapPercent}
                     onFFTOverlapChange={handleFFTOverlapChange}
+                    fftOverlapDepth={fftOverlapDepth}
+                    onFFTOverlapDepthChange={handleFFTOverlapDepthChange}
                     bandscopeSmoothing={bandscopeSmoothing}
                     onBandscopeSmoothingChange={handleBandscopeSmoothingChange}
                     colorMaps={colorMaps}

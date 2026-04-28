@@ -26,7 +26,8 @@ class SessionConfig(TypedDict, total=False):
     rtl_agc: bool
     fft_window: str
     fft_averaging: int
-    fft_overlap: bool
+    fft_overlap_percent: int
+    fft_overlap_depth: int
     antenna: Optional[str]
     recording_path: Optional[str]
     serial_number: Optional[str]

@@ -83,7 +83,8 @@ def uhd_worker_process(
         fft_averaging = config.get("fft_averaging", 8)
 
         # FFT overlap (passed to IQ consumers)
-        fft_overlap = config.get("fft_overlap", False)
+        fft_overlap_percent = int(config.get("fft_overlap_percent", 0) or 0)
+        fft_overlap_depth = int(config.get("fft_overlap_depth", 16) or 16)
 
         # Track whether we have IQ consumers
         has_iq_consumers = iq_queue_fft is not None or iq_queue_demod is not None
@@ -392,10 +393,21 @@ def uhd_worker_process(
                             # FFT averaging is now handled by FFT processor
                             logger.info(f"Updated FFT averaging: {fft_averaging}")
 
-                    if "fft_overlap" in new_config:
-                        if old_config.get("fft_overlap", True) != new_config["fft_overlap"]:
-                            fft_overlap = new_config["fft_overlap"]
-                            logger.info(f"Updated FFT overlap: {fft_overlap}")
+                    if "fft_overlap_percent" in new_config:
+                        if (
+                            old_config.get("fft_overlap_percent", fft_overlap_percent)
+                            != new_config["fft_overlap_percent"]
+                        ):
+                            fft_overlap_percent = int(new_config["fft_overlap_percent"] or 0)
+                            logger.info(f"Updated FFT overlap percent: {fft_overlap_percent}%")
+
+                    if "fft_overlap_depth" in new_config:
+                        if (
+                            old_config.get("fft_overlap_depth", fft_overlap_depth)
+                            != new_config["fft_overlap_depth"]
+                        ):
+                            fft_overlap_depth = int(new_config["fft_overlap_depth"] or 16)
+                            logger.info(f"Updated FFT overlap depth: {fft_overlap_depth}")
 
                     if "antenna" in new_config:
                         if old_config.get("antenna", None) != new_config["antenna"]:
@@ -510,7 +522,8 @@ def uhd_worker_process(
                                             "fft_size": fft_size,
                                             "fft_window": fft_window,
                                             "fft_averaging": fft_averaging,
-                                            "fft_overlap": fft_overlap,
+                                            "fft_overlap_percent": fft_overlap_percent,
+                                            "fft_overlap_depth": fft_overlap_depth,
                                         },
                                     }
                                     iq_queue_fft.put_nowait(iq_message)

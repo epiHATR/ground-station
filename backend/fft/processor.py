@@ -47,7 +47,8 @@ def fft_processor_process(iq_queue, data_queue, stop_event, client_id):
     fft_size = 16384
     fft_window = "hanning"
     fft_averaging = 6
-    fft_overlap = True
+    fft_overlap_percent = 50
+    fft_overlap_depth = 16
 
     # Initialize FFT averager
     fft_averager = FFTAverager(logger, averaging_factor=fft_averaging)
@@ -143,12 +144,29 @@ def fft_processor_process(iq_queue, data_queue, stop_event, client_id):
                         logger.info(f"Updated FFT averaging: {fft_averaging}")
 
                     if (
-                        "fft_overlap" in config
-                        and config["fft_overlap"] is not None
-                        and config["fft_overlap"] != fft_overlap
+                        "fft_overlap_percent" in config
+                        and config["fft_overlap_percent"] is not None
                     ):
-                        fft_overlap = config["fft_overlap"]
-                        logger.info(f"Updated FFT overlap: {fft_overlap}")
+                        raw_percent = config["fft_overlap_percent"]
+                        try:
+                            next_percent = int(raw_percent)
+                        except (TypeError, ValueError):
+                            next_percent = fft_overlap_percent
+                        next_percent = max(0, min(90, next_percent))
+                        if next_percent != fft_overlap_percent:
+                            fft_overlap_percent = next_percent
+                            logger.info(f"Updated FFT overlap percent: {fft_overlap_percent}%")
+
+                    if "fft_overlap_depth" in config and config["fft_overlap_depth"] is not None:
+                        raw_depth = config["fft_overlap_depth"]
+                        try:
+                            next_depth = int(raw_depth)
+                        except (TypeError, ValueError):
+                            next_depth = fft_overlap_depth
+                        next_depth = max(1, min(64, next_depth))
+                        if next_depth != fft_overlap_depth:
+                            fft_overlap_depth = next_depth
+                            logger.info(f"Updated FFT overlap depth: {fft_overlap_depth}")
 
                 # Extract samples
                 samples = iq_message.get("samples")
@@ -165,55 +183,113 @@ def fft_processor_process(iq_queue, data_queue, stop_event, client_id):
                 window_func = window_functions.get(fft_window.lower(), np.hanning)
                 window = window_func(actual_fft_size)
 
-                # Calculate FFT segments based on overlap setting
-                if fft_overlap:
-                    # Use 50% overlap
-                    overlap_step = actual_fft_size // 2
-                    num_segments = (len(samples) - actual_fft_size // 2) // (actual_fft_size // 2)
-                else:
-                    # No overlap - use non-overlapping segments
-                    overlap_step = actual_fft_size
-                    num_segments = len(samples) // actual_fft_size
+                # When UI FFT averaging is "None" (factor=1), avoid heavy hidden
+                # intra-block smoothing. Still honor overlap so the toggle has
+                # visible impact.
+                if fft_averaging <= 1:
+                    if len(samples) < actual_fft_size:
+                        logger.debug(
+                            f"Not enough samples for instantaneous FFT: {len(samples)} < {actual_fft_size}"
+                        )
+                        continue
 
-                if num_segments <= 0:
-                    overlap_type = "with overlap" if fft_overlap else "without overlap"
-                    logger.debug(
-                        f"Not enough samples for FFT {overlap_type}: {len(samples)} < {actual_fft_size}"
-                    )
-                    continue
-
-                fft_result = np.zeros(actual_fft_size)
-
-                for i in range(num_segments):
-                    start_idx = i * overlap_step
-                    segment = samples[start_idx : start_idx + actual_fft_size]
-
-                    windowed_segment = segment * window
-
-                    # Perform FFT
-                    fft_segment = np.fft.fft(windowed_segment)
-
-                    # Shift DC to center
-                    fft_segment = np.fft.fftshift(fft_segment)
-
-                    # Proper power normalization
-                    N = len(fft_segment)
-                    if fft_overlap:
-                        # Use simpler correction for overlapped FFTs
-                        window_correction = 1.0
-                    else:
-                        # Use proper window correction for non-overlapped FFTs
-                        window_correction = np.sum(window**2) / N
-
-                    # FFT output magnitude scales with N; use N^2 to keep power levels
-                    # normalized across FFT sizes.
+                    N = actual_fft_size
+                    window_correction = np.sum(window**2) / N
                     normalization = (N**2) * window_correction
-                    power = 10 * np.log10((np.abs(fft_segment) ** 2) / normalization + 1e-10)
-                    fft_result += power
 
-                # Average the segments
-                if num_segments > 0:
-                    fft_result /= num_segments
+                    overlap_enabled = fft_overlap_percent > 0
+                    if overlap_enabled:
+                        # Use a short trailing set of overlapped segments so overlap
+                        # remains visually meaningful without reintroducing heavy smoothing.
+                        overlap_step = max(
+                            1, int(actual_fft_size * (1 - (fft_overlap_percent / 100.0)))
+                        )
+                        num_segments = 1 + max(0, (len(samples) - actual_fft_size) // overlap_step)
+                        if num_segments <= 0:
+                            logger.debug(
+                                f"Not enough samples for instantaneous FFT with overlap: {len(samples)} < {actual_fft_size}"
+                            )
+                            continue
+
+                        # Use user-selected depth of recent overlapped segments.
+                        segments_to_use = min(num_segments, fft_overlap_depth)
+                        start_segment = num_segments - segments_to_use
+
+                        power_acc = np.zeros(actual_fft_size, dtype=np.float64)
+                        for i in range(start_segment, num_segments):
+                            start_idx = i * overlap_step
+                            segment = samples[start_idx : start_idx + actual_fft_size]
+                            windowed_segment = segment * window
+                            fft_segment = np.fft.fftshift(np.fft.fft(windowed_segment))
+                            power_acc += (np.abs(fft_segment) ** 2) / normalization
+
+                        avg_power = power_acc / segments_to_use
+                        fft_result = 10 * np.log10(avg_power + 1e-10)
+                    else:
+                        # No overlap: use only the most recent full segment.
+                        start_idx = len(samples) - actual_fft_size
+                        segment = samples[start_idx : start_idx + actual_fft_size]
+                        windowed_segment = segment * window
+                        fft_segment = np.fft.fftshift(np.fft.fft(windowed_segment))
+                        fft_result = 10 * np.log10(
+                            (np.abs(fft_segment) ** 2) / normalization + 1e-10
+                        )
+                else:
+                    # Calculate FFT segments based on overlap setting
+                    overlap_enabled = fft_overlap_percent > 0
+                    if overlap_enabled:
+                        overlap_step = max(
+                            1, int(actual_fft_size * (1 - (fft_overlap_percent / 100.0)))
+                        )
+                        num_segments = 1 + max(0, (len(samples) - actual_fft_size) // overlap_step)
+                    else:
+                        # No overlap - use non-overlapping segments
+                        overlap_step = actual_fft_size
+                        num_segments = len(samples) // actual_fft_size
+
+                    if num_segments <= 0:
+                        overlap_type = (
+                            f"with overlap ({fft_overlap_percent}%)"
+                            if overlap_enabled
+                            else "without overlap"
+                        )
+                        logger.debug(
+                            f"Not enough samples for FFT {overlap_type}: {len(samples)} < {actual_fft_size}"
+                        )
+                        continue
+
+                    fft_result = np.zeros(actual_fft_size)
+
+                    for i in range(num_segments):
+                        start_idx = i * overlap_step
+                        segment = samples[start_idx : start_idx + actual_fft_size]
+
+                        windowed_segment = segment * window
+
+                        # Perform FFT
+                        fft_segment = np.fft.fft(windowed_segment)
+
+                        # Shift DC to center
+                        fft_segment = np.fft.fftshift(fft_segment)
+
+                        # Proper power normalization
+                        N = len(fft_segment)
+                        if overlap_enabled:
+                            # Use simpler correction for overlapped FFTs
+                            window_correction = 1.0
+                        else:
+                            # Use proper window correction for non-overlapped FFTs
+                            window_correction = np.sum(window**2) / N
+
+                        # FFT output magnitude scales with N; use N^2 to keep power levels
+                        # normalized across FFT sizes.
+                        normalization = (N**2) * window_correction
+                        power = 10 * np.log10((np.abs(fft_segment) ** 2) / normalization + 1e-10)
+                        fft_result += power
+
+                    # Average the segments
+                    if num_segments > 0:
+                        fft_result /= num_segments
 
                 # Convert to Float32 for efficiency in transmission
                 fft_result = fft_result.astype(np.float32)

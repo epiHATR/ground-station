@@ -198,7 +198,8 @@ const initialState = {
     fftWindow: 'hanning',
     fftWindows: ['hanning', 'hamming', 'blackman', 'kaiser', 'bartlett'],
     fftAveraging: 1,
-    fftOverlap: true,
+    fftOverlapPercent: 50,
+    fftOverlapDepth: 16,
     bandscopeSmoothing: 'medium',
     gain: "none",
     rtlGains: [0, 0.9, 1.4, 2.7, 3.7, 7.7, 8.7, 12.5, 14.4, 15.7, 16.6, 19.7, 20.7, 22.9, 25.4,
@@ -508,8 +509,11 @@ export const waterfallSlice = createSlice({
         setFFTAveraging: (state, action) => {
             state.fftAveraging = action.payload;
         },
-        setFFTOverlap: (state, action) => {
-            state.fftOverlap = action.payload;
+        setFFTOverlapPercent: (state, action) => {
+            state.fftOverlapPercent = action.payload;
+        },
+        setFFTOverlapDepth: (state, action) => {
+            state.fftOverlapDepth = action.payload;
         },
         setBandscopeSmoothing: (state, action) => {
             state.bandscopeSmoothing = action.payload;
@@ -522,7 +526,12 @@ export const waterfallSlice = createSlice({
             if (config.gain !== undefined) state.gain = config.gain;
             if (config.fft_size !== undefined) state.fftSize = config.fft_size;
             if (config.fft_window !== undefined) state.fftWindow = config.fft_window;
-            if (config.fft_overlap !== undefined) state.fftOverlap = config.fft_overlap;
+            if (config.fft_overlap_percent !== undefined) {
+                state.fftOverlapPercent = config.fft_overlap_percent;
+            }
+            if (config.fft_overlap_depth !== undefined) {
+                state.fftOverlapDepth = config.fft_overlap_depth;
+            }
             if (config.bias_t !== undefined && config.sdr_id) {
                 if (!state.sdrSettingsById[config.sdr_id]) {
                     state.sdrSettingsById[config.sdr_id] = { draft: {}, applied: {} };
@@ -692,7 +701,8 @@ export const {
     setFFTSize,
     setFFTSizeOptions,
     setFFTAveraging,
-    setFFTOverlap,
+    setFFTOverlapPercent,
+    setFFTOverlapDepth,
     setBandscopeSmoothing,
     updateSDRConfig,
     setGain,
