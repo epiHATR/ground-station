@@ -24,15 +24,11 @@ from math import ceil
 from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
+import webrtcvad
 from scipy import signal
 
 from common.audio_queue_config import get_audio_queue_config
 from vfos.state import VFOManager
-
-try:
-    import webrtcvad
-except ImportError:
-    webrtcvad = None
 
 logger = logging.getLogger("fm-demodulator")
 
@@ -141,7 +137,7 @@ class FMDemodulator(threading.Thread):
         self.vad_last_frame_band_ratio_db = 0.0
         self.vad_last_frame_zcr = 0.0
         self.vad_last_webrtc_speech = False
-        self.webrtc_vad = webrtcvad.Vad(2) if webrtcvad is not None else None
+        self.webrtc_vad = webrtcvad.Vad(2)
         self.last_squelch_debug_log_time = 0.0
         self.last_audio_overflow_warning_time = 0.0
         self.last_squelch_debug: Dict[str, Any] = {
@@ -150,12 +146,6 @@ class FMDemodulator(threading.Thread):
             "carrier_open": False,
             "voice_open": False,
         }
-
-        if self.webrtc_vad is None:
-            logger.warning(
-                "webrtcvad not available, using DSP fallback voice squelch for session %s",
-                self.session_id,
-            )
 
         # Performance monitoring stats
         self.stats: Dict[str, Any] = {
@@ -503,33 +493,6 @@ class FMDemodulator(threading.Thread):
             "zcr": float(zcr),
         }
 
-    def _detect_voice_frame_dsp(self, frame: np.ndarray, profile: Dict[str, float]) -> bool:
-        frame_features = self._compute_vad_frame_features(frame)
-        frame_rms = frame_features["rms"]
-        flatness = frame_features["flatness"]
-        band_ratio_db = frame_features["band_ratio_db"]
-        zcr = frame_features["zcr"]
-        dynamic_rms_threshold = max(0.0035, self.vad_noise_rms * float(profile["rms_multiplier"]))
-
-        score = 0
-        if frame_rms > dynamic_rms_threshold:
-            score += 1
-        if flatness < float(profile["flatness_max"]):
-            score += 1
-        if band_ratio_db > float(profile["band_ratio_db_min"]):
-            score += 1
-        if zcr < float(profile["zcr_max"]):
-            score += 1
-
-        frame_voiced = score >= 3
-        self.vad_last_frame_rms = frame_rms
-        self.vad_last_frame_flatness = flatness
-        self.vad_last_frame_band_ratio_db = band_ratio_db
-        self.vad_last_frame_zcr = zcr
-        self.vad_last_webrtc_speech = False
-        self._update_vad_noise_floor(frame_rms, frame_voiced)
-        return frame_voiced
-
     def _detect_voice_frame(self, frame: np.ndarray, profile: Dict[str, float]) -> bool:
         frame_features = self._compute_vad_frame_features(frame)
         frame_rms = frame_features["rms"]
@@ -543,36 +506,33 @@ class FMDemodulator(threading.Thread):
 
         dynamic_rms_threshold = max(0.0035, self.vad_noise_rms * float(profile["rms_multiplier"]))
 
-        if self.webrtc_vad is not None:
-            try:
-                pcm = np.clip(frame, -1.0, 1.0)
-                pcm16 = (pcm * 32767.0).astype(np.int16)
-                webrtc_is_speech = bool(
-                    self.webrtc_vad.is_speech(pcm16.tobytes(), self.vad_sample_rate)
-                )
-                self.vad_last_webrtc_speech = webrtc_is_speech
+        try:
+            pcm = np.clip(frame, -1.0, 1.0)
+            pcm16 = (pcm * 32767.0).astype(np.int16)
+            webrtc_is_speech = bool(
+                self.webrtc_vad.is_speech(pcm16.tobytes(), self.vad_sample_rate)
+            )
+            self.vad_last_webrtc_speech = webrtc_is_speech
 
-                # Noise-rejection guard for repeater hiss:
-                # broadband noise often gets occasional false positives from WebRTC VAD.
-                looks_like_broadband_noise = flatness > 0.80 and band_ratio_db < 0.0 and zcr > 0.30
-                is_loud_enough = frame_rms > dynamic_rms_threshold
-                final_voiced = (
-                    webrtc_is_speech and is_loud_enough and not looks_like_broadband_noise
-                )
+            # Noise-rejection guard for repeater hiss:
+            # broadband noise often gets occasional false positives from WebRTC VAD.
+            looks_like_broadband_noise = flatness > 0.80 and band_ratio_db < 0.0 and zcr > 0.30
+            is_loud_enough = frame_rms > dynamic_rms_threshold
+            final_voiced = webrtc_is_speech and is_loud_enough and not looks_like_broadband_noise
 
-                self._update_vad_noise_floor(frame_rms, final_voiced)
-                return final_voiced
-            except Exception:
-                pass
-        self.vad_last_webrtc_speech = False
-        return self._detect_voice_frame_dsp(frame, profile)
+            self._update_vad_noise_floor(frame_rms, final_voiced)
+            return final_voiced
+        except Exception:
+            # Keep decoder resilient to occasional VAD-frame runtime issues.
+            self.vad_last_webrtc_speech = False
+            self._update_vad_noise_floor(frame_rms, False)
+            return False
 
     def _update_voice_squelch_state(
         self, audio_44k: np.ndarray, vad_sensitivity: str, vad_close_delay_ms: int
     ) -> bool:
         profile = self._get_vad_profile(vad_sensitivity)
-        if self.webrtc_vad is not None:
-            self.webrtc_vad.set_mode(int(profile["aggressiveness"]))
+        self.webrtc_vad.set_mode(int(profile["aggressiveness"]))
 
         hangover_frames = max(1, ceil(vad_close_delay_ms / self.vad_frame_ms))
         open_modulation_frames_required_by_sensitivity = {
