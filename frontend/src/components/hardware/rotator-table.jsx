@@ -244,7 +244,7 @@ export default function AntennaRotatorTable() {
     };
 
     return (
-        <Paper elevation={3} sx={{padding: 2, marginTop: 0}}>
+        <Paper elevation={3} sx={{padding: 2, marginTop: 0, borderRadius: 0}}>
             <Alert severity="info">
                 <AlertTitle>{t('rotator.title')}</AlertTitle>
                 {t('rotator.subtitle')}

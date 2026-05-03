@@ -220,7 +220,7 @@ const MaintenanceForm = () => {
     };
 
     return (
-        <Paper elevation={3} sx={{ p: 0, mt: 0 }}>
+        <Paper elevation={3} sx={{ p: 0, mt: 0, borderRadius: 0 }}>
             <Box>
                 <AntTabs
                     value={activeTabKey}

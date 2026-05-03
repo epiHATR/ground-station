@@ -205,7 +205,9 @@ test.describe('Satellite List CRUD', () => {
     await expect(row).toBeVisible();
     await row.getByRole('checkbox').check({ force: true });
 
-    await page.getByRole('button', { name: /^edit$/i }).click();
+    const toolbarEditButton = page.getByRole('button').filter({ hasText: /^edit$/i }).first();
+    await expect(toolbarEditButton).toBeEnabled();
+    await toolbarEditButton.click();
     const editDialog = page.getByRole('dialog', { name: /edit satellite/i });
     await expect(editDialog).toBeVisible();
     await editDialog.getByRole('textbox', { name: /^name$/i }).fill(updatedName);
@@ -248,7 +250,9 @@ test.describe('TLE Sources CRUD', () => {
     await expect(row).toBeVisible();
     await row.getByRole('checkbox').check({ force: true });
 
-    await page.getByRole('button', { name: /^edit$/i }).click();
+    const toolbarEditButton = page.getByRole('button').filter({ hasText: /^edit$/i }).first();
+    await expect(toolbarEditButton).toBeEnabled();
+    await toolbarEditButton.click();
     const editDialog = page.getByRole('dialog');
     await editDialog.getByLabel(/name/i).fill(updatedName);
     await editDialog.getByRole('button', { name: /edit|submit|save/i }).click();

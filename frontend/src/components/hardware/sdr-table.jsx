@@ -886,7 +886,7 @@ export default function SDRsPage() {
         return fields;
     };
     return (
-        <Paper elevation={3} sx={{padding: 2, marginTop: 0}}>
+        <Paper elevation={3} sx={{padding: 2, marginTop: 0, borderRadius: 0}}>
             <Alert severity="info" sx={{mb: 2}}>
                 <AlertTitle>{t('sdr.title')}</AlertTitle>
                 {t('sdr.subtitle')}

@@ -176,7 +176,7 @@ export default function RigTable() {
     const hasValidationErrors = Object.keys(validationErrors).length > 0;
 
     return (
-        <Paper elevation={3} sx={{padding: 2, marginTop: 0}}>
+        <Paper elevation={3} sx={{padding: 2, marginTop: 0, borderRadius: 0}}>
             <Alert severity="info">
                 <AlertTitle>{t('rig.title')}</AlertTitle>
                 {t('rig.subtitle')}

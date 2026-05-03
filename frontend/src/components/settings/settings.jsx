@@ -284,7 +284,7 @@ const RigControlForm = () => {
 const SatellitesForm = () => {
 
     return (
-        <Paper elevation={3} sx={{ padding: 2, marginTop: 0}} variant="elevation">
+        <Paper elevation={3} sx={{ padding: 2, marginTop: 0, borderRadius: 0}} variant="elevation">
             <SatelliteTable/>
         </Paper>);
 };
@@ -292,7 +292,7 @@ const SatellitesForm = () => {
 const SatelliteGroupsForm = () => {
 
     return (
-        <Paper elevation={3} sx={{ padding: 2, marginTop: 0}} variant="elevation">
+        <Paper elevation={3} sx={{ padding: 2, marginTop: 0, borderRadius: 0}} variant="elevation">
             <SatelliteGroupsTable/>
         </Paper>);
 };
@@ -300,7 +300,7 @@ const SatelliteGroupsForm = () => {
 const OrbitalSourcesForm = () => {
 
     return (
-        <Paper elevation={3} sx={{ padding: 2, marginTop: 0}} variant="elevation">
+        <Paper elevation={3} sx={{ padding: 2, marginTop: 0, borderRadius: 0}} variant="elevation">
             <SourcesTable/>
         </Paper>);
 };

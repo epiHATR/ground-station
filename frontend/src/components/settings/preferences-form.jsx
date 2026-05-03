@@ -303,7 +303,7 @@ const PreferencesForm = () => {
                 <Typography variant="h6">{t('preferences.reloading', { defaultValue: 'Reloading...' })}</Typography>
             </Backdrop>
 
-            <Paper elevation={3} sx={{ p: 2, mt: 0 }}>
+            <Paper elevation={3} sx={{ p: 2, mt: 0, borderRadius: 0 }}>
                 <Box component="form">
                     <Stack spacing={3}>
                         <Box>

@@ -96,7 +96,7 @@ export default function CameraTable() {
     };
 
     return (
-        <Paper elevation={3} sx={{padding: 2, marginTop: 0}}>
+        <Paper elevation={3} sx={{padding: 2, marginTop: 0, borderRadius: 0}}>
             <Alert severity="info">
                 <AlertTitle>{t('camera.title')}</AlertTitle>
                 {t('camera.subtitle')}

@@ -358,7 +358,7 @@ const LocationPage = () => {
     };
 
     return (
-        <Paper elevation={3} sx={{ padding: 2, marginTop: 0 }}>
+        <Paper elevation={3} sx={{ padding: 2, marginTop: 0, borderRadius: 0 }}>
             <Grid container spacing={2} columns={{ xs: 1, sm: 1, md: 1, lg: 2 }}>
                 <Grid size={{ xs: 1, md: 1 }}>
                     <Box
