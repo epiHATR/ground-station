@@ -89,6 +89,8 @@ import EditIcon from '@mui/icons-material/Edit';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded';
 import ArrowDownwardRoundedIcon from '@mui/icons-material/ArrowDownwardRounded';
+import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined';
+import FolderSharedOutlinedIcon from '@mui/icons-material/FolderSharedOutlined';
 
 function Pagination({page, onPageChange, className}) {
     const apiRef = useGridApiContext();
@@ -134,6 +136,14 @@ const SatelliteTable = React.memo(function SatelliteTable() {
     const [submitError, setSubmitError] = useState('');
     const [submitErrorFields, setSubmitErrorFields] = useState({});
     const [isSubmitting, setIsSubmitting] = useState(false);
+
+    const getGroupOptionIcon = (groupType) => {
+        const normalizedType = String(groupType || '').toLowerCase();
+        if (normalizedType === 'user') {
+            return <FolderSharedOutlinedIcon fontSize="small" sx={{ color: 'primary.main' }} />;
+        }
+        return <FolderOutlinedIcon fontSize="small" sx={{ color: 'text.secondary' }} />;
+    };
 
     // Get timezone preference
     const timezone = useSelector((state) => {
@@ -593,7 +603,14 @@ const SatelliteTable = React.memo(function SatelliteTable() {
                         ) : (
                             satellitesGroups.map((group, index) => {
                                 if (group.type === "user") {
-                                    return <MenuItem value={group.id} key={index}>{group.name} ({group.satellite_ids.length})</MenuItem>;
+                                    return (
+                                        <MenuItem value={group.id} key={index}>
+                                            <Stack direction="row" spacing={1} alignItems="center">
+                                                {getGroupOptionIcon(group.type)}
+                                                <span>{group.name} ({group.satellite_ids.length})</span>
+                                            </Stack>
+                                        </MenuItem>
+                                    );
                                 }
                             })
                         )}
@@ -605,7 +622,14 @@ const SatelliteTable = React.memo(function SatelliteTable() {
                         ) : (
                             satellitesGroups.map((group, index) => {
                                 if (group.type === "system") {
-                                    return <MenuItem value={group.id} key={index}>{group.name} ({group.satellite_ids.length})</MenuItem>;
+                                    return (
+                                        <MenuItem value={group.id} key={index}>
+                                            <Stack direction="row" spacing={1} alignItems="center">
+                                                {getGroupOptionIcon(group.type)}
+                                                <span>{group.name} ({group.satellite_ids.length})</span>
+                                            </Stack>
+                                        </MenuItem>
+                                    );
                                 }
                             })
                         )}

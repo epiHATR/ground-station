@@ -20,11 +20,13 @@
 import React, { useCallback, useEffect, useState, useRef, useMemo } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useStore } from "react-redux";
-import { Box, FormControl, InputLabel, Select, MenuItem, ListSubheader, Chip, Menu, Typography, Badge, Tooltip, ToggleButton, Button } from "@mui/material";
+import { Box, FormControl, InputLabel, Select, MenuItem, ListSubheader, Chip, Menu, Typography, Badge, Tooltip, ToggleButton, Button, Stack } from "@mui/material";
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import HorizontalRuleIcon from '@mui/icons-material/HorizontalRule';
+import FolderSharedOutlinedIcon from '@mui/icons-material/FolderSharedOutlined';
+import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined';
 import { useTranslation } from 'react-i18next';
 import { useSocket } from "../common/socket.jsx";
 import {
@@ -289,7 +291,10 @@ const SatelliteGroupSelectorBar = React.memo(function SatelliteGroupSelectorBar(
                                         value={group.id}
                                         key={`user-${index}`}
                                     >
-                                        {group.name} ({group.satellite_ids.length})
+                                        <Stack direction="row" spacing={1} alignItems="center">
+                                            <FolderSharedOutlinedIcon fontSize="small" color="primary" />
+                                            <span>{group.name} ({group.satellite_ids.length})</span>
+                                        </Stack>
                                     </MenuItem>
                                 );
                             }
@@ -308,7 +313,10 @@ const SatelliteGroupSelectorBar = React.memo(function SatelliteGroupSelectorBar(
                                         value={group.id}
                                         key={`system-${index}`}
                                     >
-                                        {group.name} ({group.satellite_ids.length})
+                                        <Stack direction="row" spacing={1} alignItems="center">
+                                            <FolderOutlinedIcon fontSize="small" sx={{ color: 'text.secondary' }} />
+                                            <span>{group.name} ({group.satellite_ids.length})</span>
+                                        </Stack>
                                     </MenuItem>
                                 );
                             }
