@@ -254,6 +254,14 @@ def _planet_state(name: str, day_offset: float) -> Dict[str, object]:
     )
     z_helio = radius * (sin(true_anomaly + w_rad) * sin(i_rad))
 
+    # These legacy Earth elements describe the Sun's geocentric vector in the
+    # classic low-precision formula set. Convert to Earth's heliocentric vector
+    # so downstream geocentric subtraction (target - earth) has the correct sign.
+    if name == "earth":
+        x_helio = -x_helio
+        y_helio = -y_helio
+        z_helio = -z_helio
+
     phase = (true_anomaly % (2.0 * pi)) / (2.0 * pi)
 
     return {
