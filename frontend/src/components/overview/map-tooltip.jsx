@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect, useRef } from 'react';
-import { Marker } from 'react-leaflet';
+import React, { useRef } from 'react';
+import { Marker, useMap } from 'react-leaflet';
 import { Button, Box, IconButton } from '@mui/material';
 import { ThemedLeafletTooltip } from "../common/common.jsx";
 import { styled } from '@mui/material/styles';
@@ -10,6 +10,7 @@ import InfoIcon from '@mui/icons-material/Info';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import TargetNumberIcon from '../common/target-number-icon.jsx';
+import { useTooltipOrientation } from '../common/tooltip-orientation.js';
 
 // Styled tooltip specifically for tracked satellites
 const TrackedSatelliteTooltip = styled(LeafletTooltip)(({ theme }) => ({
@@ -18,8 +19,18 @@ const TrackedSatelliteTooltip = styled(LeafletTooltip)(({ theme }) => ({
     borderRadius: theme.shape.borderRadius,
     borderColor: theme.palette.error.main,
     zIndex: 1000,
-    '&::before': {
+    // Leaflet uses different triangle borders per direction class.
+    '&.leaflet-tooltip-bottom::before': {
         borderBottomColor: `${theme.palette.error.main} !important`,
+    },
+    '&.leaflet-tooltip-top::before': {
+        borderTopColor: `${theme.palette.error.main} !important`,
+    },
+    '&.leaflet-tooltip-left::before': {
+        borderLeftColor: `${theme.palette.error.main} !important`,
+    },
+    '&.leaflet-tooltip-right::before': {
+        borderRightColor: `${theme.palette.error.main} !important`,
     },
 }));
 
@@ -46,19 +57,23 @@ const SatelliteMarker = ({
         : (trackingSatelliteId != null ? [String(trackingSatelliteId)] : []);
     const isTracking = normalizedTrackingIds.includes(String(satellite.norad_id));
     const targetNumber = targetNumberByNorad?.[String(satellite.norad_id)] ?? null;
-
-    // Local state for the disabled property
-    const [isDisabled, setIsDisabled] = useState(isTracking);
-
-    // Update local state whenever the dependencies change
-    useEffect(() => {
-        setIsDisabled(isTracking);
-    }, [isTracking]);
-
+    const map = useMap();
+    const markerRef = useRef(null);
     const isSelected = selectedSatelliteId === satellite.norad_id;
+    const tooltipAnchorDistance = isTracking ? 24 : (isVisible ? 20 : 16);
 
     // Choose which tooltip component to use
     const TooltipComponent = isTracking ? TrackedSatelliteTooltip : ThemedLeafletTooltip;
+    const {
+        direction: tooltipDirection,
+        offset: tooltipOffset,
+    } = useTooltipOrientation({
+        map,
+        markerRef,
+        position,
+        anchorDistance: tooltipAnchorDistance,
+        edgePadding: 10,
+    });
 
     const handleSetTarget = (e) => {
         e.stopPropagation();
@@ -80,12 +95,14 @@ const SatelliteMarker = ({
             key={`marker-${satellite.norad_id}-${isTracking ? 'tracked' : 'idle'}`}
             position={position}
             icon={satelliteIcon}
+            ref={markerRef}
             eventHandlers={markerEventHandlers}
             opacity={opacity}
         >
             <TooltipComponent
-                direction="bottom"
-                offset={[0, isTracking ? 15 : (isVisible ? 10 : 5)]}
+                key={`tooltip-${tooltipDirection}-${tooltipOffset[0]}-${tooltipOffset[1]}`}
+                direction={tooltipDirection}
+                offset={tooltipOffset}
                 permanent={true}
                 className={"tooltip-satellite"}
                 interactive={true}

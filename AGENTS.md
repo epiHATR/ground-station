@@ -23,6 +23,7 @@
 - Python dev/test tools for backend are in `backend/venv/bin` (for example `./venv/bin/pytest`, `./venv/bin/python`, `./venv/bin/alembic` from inside `backend/`).
 - For pytest runs, set `ALEMBIC_CONTEXT=1` to avoid app CLI argument parsing conflicts (example: `cd backend && ALEMBIC_CONTEXT=1 ./venv/bin/pytest -q`).
 - Frontend E2E tests require the app/backend to be running and reachable by Playwright test config.
+- Never run the frontend npm dev server (`npm run dev`, `npm run dev:*`, `vite`) unless the user has *C L E A R L Y   S T A T E D* to do so in the current turn.
 
 ## Backend Command Context (Important)
 - Run backend checks from `backend/` (or use absolute paths).

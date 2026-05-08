@@ -25,6 +25,7 @@ import {
     Marker,
     Polyline,
     Polygon,
+    useMap,
     useMapEvents,
 } from 'react-leaflet';
 import {Box, Fab, Slider, Typography, Tooltip, IconButton, useTheme} from "@mui/material";
@@ -69,11 +70,11 @@ import {
     MapArrowControls,
     SimpleTruncatedHtml,
     getClassNamesBasedOnGridEditing,
-    ThemedLeafletTooltip,
     humanizeAltitude,
     humanizeVelocity,
 } from "../common/common.jsx";
 import TargetNumberIcon from '../common/target-number-icon.jsx';
+import { useTooltipOrientation } from '../common/tooltip-orientation.js';
 import MapSettingsIslandDialog from './map-settings-dialog.jsx';
 import CoordinateGrid from "../common/mercator-grid.jsx";
 import createTerminatorLine from "../common/terminator-line.jsx";
@@ -111,10 +112,70 @@ const TrackedSatelliteTooltip = styled(LeafletTooltip)(({ theme }) => ({
     borderRadius: theme.shape.borderRadius,
     borderColor: theme.palette.error.main,
     zIndex: 1000,
-    '&::before': {
+    // Keep the arrow color aligned with the active orientation class.
+    '&.leaflet-tooltip-bottom::before': {
         borderBottomColor: `${theme.palette.error.main} !important`,
     },
+    '&.leaflet-tooltip-top::before': {
+        borderTopColor: `${theme.palette.error.main} !important`,
+    },
+    '&.leaflet-tooltip-left::before': {
+        borderLeftColor: `${theme.palette.error.main} !important`,
+    },
+    '&.leaflet-tooltip-right::before': {
+        borderRightColor: `${theme.palette.error.main} !important`,
+    },
 }));
+
+const TargetSatelliteMarker = React.memo(function TargetSatelliteMarker({
+    position,
+    satelliteName,
+    altitudeLabel,
+    velocityLabel,
+    targetNumber,
+}) {
+    const map = useMap();
+    const markerRef = useRef(null);
+    const {
+        direction: tooltipDirection,
+        offset: tooltipOffset,
+    } = useTooltipOrientation({
+        map,
+        markerRef,
+        position,
+        anchorDistance: 24,
+        edgePadding: 10,
+    });
+
+    return (
+        <Marker position={position} icon={satelliteIcon2} ref={markerRef}>
+            <TrackedSatelliteTooltip
+                key={`tooltip-${tooltipDirection}-${tooltipOffset[0]}-${tooltipOffset[1]}`}
+                direction={tooltipDirection}
+                offset={tooltipOffset}
+                opacity={1}
+                permanent
+                className={"tooltip-satellite"}
+                interactive={true}
+            >
+                <strong>
+                    {targetNumber != null && (
+                        <TargetNumberIcon
+                            targetNumber={targetNumber}
+                            prefix="T"
+                            size={15}
+                            sx={{ mr: 0.7, verticalAlign: 'middle', position: 'relative', top: -1 }}
+                            iconColor="common.white"
+                            badgeBgColor="warning.main"
+                            badgeTextColor="common.black"
+                        />
+                    )}
+                    {satelliteName} - {`${altitudeLabel}, ${velocityLabel}`}
+                </strong>
+            </TrackedSatelliteTooltip>
+        </Marker>
+    );
+});
 
 // global leaflet map object
 let MapObject = null;
@@ -592,32 +653,16 @@ const TargetSatelliteMapContainer = ({}) => {
             }
 
             if (hasValidSatellitePoint && showTooltip) {
-                currentPos.push(<Marker key={"marker-" + satelliteId} position={[latitude, longitude]}
-                                        icon={satelliteIcon2}>
-                    <TrackedSatelliteTooltip
-                        direction="bottom"
-                        offset={[0, 15]}
-                        opacity={1}
-                        permanent
-                        className={"tooltip-satellite"}
-                        interactive={true}
-                    >
-                        <strong>
-                            {targetNumber != null && (
-                                <TargetNumberIcon
-                                    targetNumber={targetNumber}
-                                    prefix="T"
-                                    size={15}
-                                    sx={{ mr: 0.7, verticalAlign: 'middle', position: 'relative', top: -1 }}
-                                    iconColor="common.white"
-                                    badgeBgColor="warning.main"
-                                    badgeTextColor="common.black"
-                                />
-                            )}
-                            {satelliteName} - {`${altitudeLabel}, ${velocityLabel}`}
-                        </strong>
-                    </TrackedSatelliteTooltip>
-                </Marker>);
+                currentPos.push(
+                    <TargetSatelliteMarker
+                        key={"marker-" + satelliteId}
+                        position={[latitude, longitude]}
+                        satelliteName={satelliteName}
+                        altitudeLabel={altitudeLabel}
+                        velocityLabel={velocityLabel}
+                        targetNumber={targetNumber}
+                    />
+                );
             } else if (hasValidSatellitePoint) {
                 currentPos.push(<Marker key={"marker-" + satelliteId} position={[latitude, longitude]}
                                         icon={satelliteIcon2}>

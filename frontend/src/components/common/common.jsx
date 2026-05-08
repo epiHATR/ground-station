@@ -182,6 +182,19 @@ export const ThemedLeafletTooltip = styled(LeafletTooltip)(({ theme }) => ({
     borderRadius: theme.shape.borderRadius,
     borderColor: theme.palette.background.paper,
     zIndex: 1000,
+    // Leaflet uses directional pseudo-element borders for tooltip arrows.
+    '&.leaflet-tooltip-bottom::before': {
+        borderBottomColor: `${theme.palette.background.paper} !important`,
+    },
+    '&.leaflet-tooltip-top::before': {
+        borderTopColor: `${theme.palette.background.paper} !important`,
+    },
+    '&.leaflet-tooltip-left::before': {
+        borderLeftColor: `${theme.palette.background.paper} !important`,
+    },
+    '&.leaflet-tooltip-right::before': {
+        borderRightColor: `${theme.palette.background.paper} !important`,
+    },
 }));
 
 export const ThemedStackIsland = styled(Stack)(({theme}) => ({
