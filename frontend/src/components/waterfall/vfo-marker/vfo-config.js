@@ -63,7 +63,7 @@ export const DEMODULATORS = {
         displayName: 'FMS',
         description: 'Stereo Frequency Modulation',
         defaultBandwidth: 150000, // 150 kHz for broadcast FM
-        minBandwidth: 100000,
+        minBandwidth: 1000, // allow narrowing below broadcast width (same floor as FM)
         maxBandwidth: 200000,
         bandwidthType: 'double-sided',
         showBothEdges: true,
