@@ -110,6 +110,7 @@ export const themeConfigs = {
             paper: '#ffffff',
             elevated: '#eef2f7',
             titleBar: '#e8edf4',
+            appBar: '#dbe8fb',
         },
         border: {
             main: '#c4ccd8',

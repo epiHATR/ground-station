@@ -224,14 +224,10 @@ export function setupTheme(themeName = 'dark') {
             MuiAppBar: {
                 styleOverrides: {
                     colorPrimary: ({ theme }) => ({
-                        backgroundColor: theme.palette.mode === 'dark'
-                            ? theme.palette.surface.appBar
-                            : theme.palette.surface.raised,
+                        backgroundColor: theme.palette.surface.appBar,
                     }),
                     root: ({ theme }) => ({
-                        backgroundColor: theme.palette.mode === 'dark'
-                            ? theme.palette.surface.appBar
-                            : theme.palette.surface.raised,
+                        backgroundColor: theme.palette.surface.appBar,
                         color: theme.palette.text.primary,
                         borderBottom: `1px solid ${theme.palette.border.main}`,
                         boxShadow: isDark
