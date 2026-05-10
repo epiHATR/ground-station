@@ -97,3 +97,5 @@ backend/data/
 /playground/
 /backend/backend/data/configs/app_config.json
 /frontend/e2e/.auth/
+/backend/images/satellites/full2/
+/backend/images/satellites/wip/
