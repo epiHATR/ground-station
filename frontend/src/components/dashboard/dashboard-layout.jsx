@@ -130,6 +130,13 @@ const CustomAppBar = styled(AppBar, {
     shouldForwardProp: (prop) => prop !== 'open',
 })(({ theme, open }) => ({
     zIndex: theme.zIndex.drawer + 1,
+    ...(theme.palette.mode === 'dark' ? {
+        backgroundColor: `${theme.palette.background.appBar || theme.palette.surface.appBar} !important`,
+        backgroundImage: 'none',
+        '&.MuiAppBar-colorPrimary': {
+            backgroundColor: `${theme.palette.background.appBar || theme.palette.surface.appBar} !important`,
+        },
+    } : {}),
 }));
 
 function DashboardEditor() {

@@ -29,6 +29,7 @@ function buildSemanticPalette(config) {
             default: config.background.paper,
             raised: config.background.elevated,
             titleBar: config.background.titleBar || config.background.elevated,
+            appBar: config.background.appBar || config.background.titleBar || config.background.elevated,
             scrim: isDark ? 'rgba(0, 0, 0, 0.55)' : 'rgba(17, 24, 39, 0.36)',
         },
         state: {
@@ -222,8 +223,15 @@ export function setupTheme(themeName = 'dark') {
             },
             MuiAppBar: {
                 styleOverrides: {
+                    colorPrimary: ({ theme }) => ({
+                        backgroundColor: theme.palette.mode === 'dark'
+                            ? theme.palette.surface.appBar
+                            : theme.palette.surface.raised,
+                    }),
                     root: ({ theme }) => ({
-                        backgroundColor: theme.palette.surface.raised,
+                        backgroundColor: theme.palette.mode === 'dark'
+                            ? theme.palette.surface.appBar
+                            : theme.palette.surface.raised,
                         color: theme.palette.text.primary,
                         borderBottom: `1px solid ${theme.palette.border.main}`,
                         boxShadow: isDark

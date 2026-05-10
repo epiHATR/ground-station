@@ -36,6 +36,7 @@ export const themeConfigs = {
             paper: '#1a1c1e',
             elevated: '#23262a',
             titleBar: '#171a1d',
+            appBar: '#272b30',
         },
         border: {
             main: '#383c42',
@@ -72,6 +73,7 @@ export const themeConfigs = {
             paper: '#181b1e',
             elevated: '#20252a',
             titleBar: '#14181c',
+            appBar: '#242d36',
         },
         border: {
             main: '#2a2f35',
@@ -143,6 +145,7 @@ export const themeConfigs = {
             paper: '#121212', // Very dark gray
             elevated: '#1e1e1e', // Slightly elevated
             titleBar: '#161316',
+            appBar: '#2a272c',
         },
         border: {
             main: '#2d2d2d',
@@ -179,6 +182,7 @@ export const themeConfigs = {
             paper: '#1a1d1a', // Grimy concrete
             elevated: '#252b25', // Rusted metal
             titleBar: '#2a3a2a',
+            appBar: '#334a33',
         },
         border: {
             main: '#3a4a3a', // Weathered steel
@@ -221,6 +225,7 @@ export const themeConfigs = {
             paper: '#0a0f12', // Hull interior
             elevated: '#121a20', // Conning tower
             titleBar: '#1a2a18',
+            appBar: '#263828',
         },
         border: {
             main: '#3a4520', // Phosphor grid
